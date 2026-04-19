@@ -1,0 +1,74 @@
+# ============================================
+# Accountia AI Accountant - Requirements
+# ============================================
+
+# --------------------------------------------
+# Core Framework (API Service)
+# --------------------------------------------
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+
+# --------------------------------------------
+# MongoDB (Database)
+# --------------------------------------------
+pymongo
+motor
+beanie
+
+# --------------------------------------------
+# ML/AI - Model Training & Fine-Tuning
+# --------------------------------------------
+torch
+transformers
+tokenizers
+accelerate
+datasets
+peft
+trl
+bitsandbytes
+optimum
+safetensors
+protobuf
+sentencepiece
+numpy
+
+# --------------------------------------------
+# API Fallback (Groq)
+# --------------------------------------------
+openai
+httpx
+
+# --------------------------------------------
+# Data Processing
+# --------------------------------------------
+pandas
+python-dateutil
+
+# --------------------------------------------
+# Async/Task Queue
+# --------------------------------------------
+celery
+redis
+
+# --------------------------------------------
+# Monitoring/Logging
+# --------------------------------------------
+structlog
+prometheus-client
+
+# --------------------------------------------
+# Testing
+# --------------------------------------------
+pytest
+pytest-asyncio
+
+# --------------------------------------------
+# Utils
+# --------------------------------------------
+python-dotenv
+tenacity

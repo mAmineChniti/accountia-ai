@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Models (large files)
+models/*/
+!models/.gitkeep
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# Training data
+training/data/*.jsonl
+training/data/*.json
+training/data/*.csv
+!training/data/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# FastAPI / Uvicorn
+*.pid
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local MongoDB data
+mongo_data/
+data/db/
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# Cache
+.cache/
+*.cache
+
+# HuggingFace cache (models downloaded automatically)
+~/.cache/huggingface/
