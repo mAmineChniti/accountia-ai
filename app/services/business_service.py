@@ -49,8 +49,8 @@ class BusinessService:
             business = await platform_db["businesses"].find_one({
                 "_id": ObjectId(business_id)
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("business_objectid_lookup_failed", business_id=business_id, error=str(e))
         
         if not business:
             # Try string lookup
@@ -94,8 +94,8 @@ class BusinessService:
             business = await platform_db["businesses"].find_one({
                 "_id": ObjectId(business_id)
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("business_objectid_lookup_failed", business_id=business_id, error=str(e))
         
         if not business:
             business = await platform_db["businesses"].find_one({

@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # Processing
     max_period_days: int = 365  # Max accounting period
     batch_size: int = 100  # Invoices per batch
+    # Task queue
+    use_task_queue: bool = False  # If true, enqueue jobs to Redis queue instead of BackgroundTasks
+
+    # Inference / model tuning defaults (speed vs quality)
+    inference_max_new_tokens: int = 512
+    inference_do_sample: bool = False
+    inference_temperature: float = 0.0
+    inference_top_p: float = 0.9
     
     # Security
     jwt_secret: Optional[str] = None
@@ -68,4 +76,21 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    # Normalize common URL/secret fields that may be quoted in .env
+    for attr in (
+        "mongo_uri",
+        "redis_url",
+        "groq_api_key",
+        "api_key",
+        "jwt_secret",
+        "fine_tuned_model_path",
+        "base_model",
+    ):
+        val = getattr(s, attr, None)
+        if isinstance(val, str) and val:
+            # strip whitespace and any surrounding single/double quotes
+            cleaned = val.strip().strip('"').strip("'")
+            setattr(s, attr, cleaned)
+
+    return s

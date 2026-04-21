@@ -14,6 +14,7 @@ class AccountingTaskStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class JournalEntry(BaseModel):
@@ -76,6 +77,9 @@ class AccountingTask(Document):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    # Time estimates
+    estimated_seconds: Optional[int] = None  # Rough time estimate in seconds
+    estimated_completion: Optional[datetime] = None  # Estimated completion timestamp (UTC)
     
     # Results
     journal_entries: List[JournalEntry] = Field(default_factory=list)
