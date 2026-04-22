@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db.mongodb import close_mongodb, init_mongodb
 from app.db.redis import close_redis, init_redis
-from app.routers import accounting
+from app.routers import accounting, health
 from app.services.model_manager import ModelManager
 
 logger = structlog.get_logger()
@@ -66,6 +66,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(accounting.router, prefix="/api/accounting", tags=["Accounting"])
+app.include_router(health.router, prefix="/api/health", tags=["System"])
 
 
 @app.get("/", tags=["System"], summary="Service Info", description="Get service health and version information")

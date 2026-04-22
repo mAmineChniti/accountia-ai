@@ -50,12 +50,25 @@ class ModelManager:
         try:
             logger.info("model_initialization_started", model=settings.base_model)
             
-            # Check CUDA availability
-            if torch.cuda.is_available():
-                instance.device = "cuda"
-                logger.info("cuda_available", device_count=torch.cuda.device_count())
+            # Decide target device based on settings and availability
+            desired = (settings.device or "auto").lower()
+            if desired == "auto":
+                if torch.cuda.is_available():
+                    instance.device = "cuda"
+                    logger.info("cuda_available", device_count=torch.cuda.device_count())
+                else:
+                    instance.device = "cpu"
+                    logger.info("cuda_not_available", fallback="cpu")
+            elif desired == "cuda":
+                if torch.cuda.is_available():
+                    instance.device = "cuda"
+                    logger.info("cuda_forced", device_count=torch.cuda.device_count())
+                else:
+                    instance.device = "cpu"
+                    logger.warning("cuda_forced_but_unavailable", fallback="cpu")
             else:
-                logger.warning("cuda_not_available", fallback="cpu")
+                instance.device = "cpu"
+                logger.info("device_forced_cpu")
             
             # Load tokenizer
             instance.tokenizer = AutoTokenizer.from_pretrained(
@@ -67,22 +80,35 @@ class ModelManager:
             if instance.tokenizer.pad_token is None:
                 instance.tokenizer.pad_token = instance.tokenizer.eos_token
             
-            # 4-bit quantization config for memory efficiency
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-            )
-            
+            # Configure quantization only when using CUDA (4-bit/8-bit quantization
+            # requires GPU-backed inference). On CPU we load the full-precision model.
+            bnb_config = None
+            if instance.device == "cuda":
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                )
+
             # Load base model
-            instance.base_model = AutoModelForCausalLM.from_pretrained(
-                settings.base_model,
-                quantization_config=bnb_config,
-                device_map="auto" if instance.device == "cuda" else None,
-                torch_dtype=torch.float16 if instance.device == "cuda" else torch.float32,
+            device_map = "auto" if instance.device == "cuda" else None
+            torch_dtype = torch.float16 if instance.device == "cuda" else torch.float32
+
+            load_kwargs = dict(
+                pretrained_model_name_or_path=settings.base_model,
+                device_map=device_map,
+                torch_dtype=torch_dtype,
                 trust_remote_code=True,
             )
+
+            if bnb_config is not None:
+                load_kwargs["quantization_config"] = bnb_config
+            else:
+                # When not quantizing, enable low_cpu_mem_usage to reduce peak RAM
+                load_kwargs["low_cpu_mem_usage"] = True
+
+            instance.base_model = AutoModelForCausalLM.from_pretrained(**load_kwargs)
             
             # Load fine-tuned adapter if available
             fine_tuned_path = Path(settings.fine_tuned_model_path)
@@ -116,10 +142,11 @@ class ModelManager:
     async def generate(
         cls,
         prompt: str,
-        max_new_tokens: int = 2048,
-        temperature: float = 0.1,  # Low temp for accounting accuracy
-        top_p: float = 0.9,
+        max_new_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         system_prompt: Optional[str] = None,
+        do_sample: Optional[bool] = None,
     ) -> str:
         """Generate text from the model."""
         instance = cls()
@@ -152,14 +179,24 @@ class ModelManager:
         if instance.device == "cuda":
             inputs = {k: v.cuda() for k, v in inputs.items()}
         
-        # Generate
+        # Resolve inference parameters from settings when not provided
+        if max_new_tokens is None:
+            max_new_tokens = settings.inference_max_new_tokens
+        if temperature is None:
+            temperature = settings.inference_temperature
+        if top_p is None:
+            top_p = settings.inference_top_p
+        if do_sample is None:
+            do_sample = settings.inference_do_sample
+
+        # Generate (use deterministic greedy decoding by default for accuracy/speed)
         with torch.no_grad():
             outputs = instance.model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
                 top_p=top_p,
-                do_sample=True,
+                do_sample=do_sample,
                 pad_token_id=instance.tokenizer.pad_token_id,
                 eos_token_id=instance.tokenizer.eos_token_id,
             )

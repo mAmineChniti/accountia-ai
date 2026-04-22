@@ -62,6 +62,43 @@ class AccountingEngine:
             invoices, products, task.period_start, task.period_end
         )
         task.tax_calculations = tax_calculations
+
+        # 4b. Create tax liability journal entries so taxes appear in the ledger
+        # and financial reports. Map common tax types to payable accounts.
+        tax_entries = []
+        for calc in tax_calculations:
+            try:
+                amt = Decimal(str(calc.tax_amount))
+            except Exception:
+                amt = Decimal("0")
+
+            if amt <= 0:
+                continue
+
+            acct_name = None
+            ttype = calc.tax_type.lower()
+            if "vat" in ttype or "tva" in ttype:
+                acct_name = "VAT Payable"
+            elif "withhold" in ttype or "reten" in ttype:
+                acct_name = "Withholding Tax Payable"
+            elif "corporate" in ttype or "is (" in ttype or "income" in ttype:
+                acct_name = "Corporate Tax Payable"
+            else:
+                acct_name = f"{calc.tax_type} Payable"
+
+            tax_entries.append(JournalEntry(
+                date=task.period_end or datetime.utcnow(),
+                account=acct_name,
+                debit=Decimal("0"),
+                credit=amt,
+                description=f"Tax liability: {calc.tax_type} - {calc.notes}",
+            ))
+
+        # Append tax entries to the journal entries list so they're persisted
+        if tax_entries:
+            if not isinstance(task.journal_entries, list):
+                task.journal_entries = []
+            task.journal_entries.extend(tax_entries)
         
         # 5. Generate financial summary
         task.financial_summary = self._calculate_financial_summary(
@@ -105,14 +142,82 @@ class AccountingEngine:
             "issuerBusinessId": {"$in": [ObjectId(self.business_id), self.business_id]},
             "issuedDate": {"$gte": start, "$lte": end},
         })
-        return await cursor.to_list(length=None)
+        raw = await cursor.to_list(length=None)
+
+        # Normalize invoice documents to a predictable shape so downstream
+        # processing doesn't depend on varying field names or BSON types.
+        normalized = [self._normalize_invoice(inv) for inv in raw]
+        return normalized
     
     async def _fetch_products(self) -> List[Dict]:
         """Fetch products for the business."""
         cursor = self.tenant_db["products"].find({
             "businessId": {"$in": [ObjectId(self.business_id), self.business_id]},
         })
-        return await cursor.to_list(length=None)
+        raw = await cursor.to_list(length=None)
+        # Convert ObjectIds to strings and ensure cost exists
+        for p in raw:
+            if "_id" in p:
+                p["_id"] = str(p["_id"])
+            if "cost" not in p:
+                p["cost"] = 0
+        return raw
+
+    def _normalize_invoice(self, inv: Dict) -> Dict:
+        """Normalize invoice fields to canonical names used by the engine.
+
+        - Prefer `totalAmount` but fall back to `total` or `total_amount`.
+        - Prefer `lineItems` but fall back to `lines`.
+        - Ensure numeric fields are plain Python numbers (ints/floats).
+        - Convert ObjectId fields to strings where convenient.
+        """
+        # copy shallowly to avoid mutating original
+        invoice = dict(inv)
+
+        # Normalize issuedDate exists
+        issued = invoice.get("issuedDate")
+        if issued is None:
+            invoice["issuedDate"] = invoice.get("createdAt")
+
+        # Normalize total field
+        if "totalAmount" in invoice and invoice.get("totalAmount") is not None:
+            invoice["totalAmount"] = invoice.get("totalAmount")
+        elif "total" in invoice and invoice.get("total") is not None:
+            invoice["totalAmount"] = invoice.get("total")
+        elif "total_amount" in invoice and invoice.get("total_amount") is not None:
+            invoice["totalAmount"] = invoice.get("total_amount")
+        else:
+            invoice.setdefault("totalAmount", 0)
+
+        # Normalize line items
+        if "lineItems" in invoice and invoice.get("lineItems") is not None:
+            invoice["lineItems"] = invoice.get("lineItems")
+        elif "lines" in invoice and invoice.get("lines") is not None:
+            invoice["lineItems"] = invoice.get("lines")
+        else:
+            invoice.setdefault("lineItems", [])
+
+        # Normalize numeric and id types
+        try:
+            # convert totals to plain Decimal-friendly strings/nums
+            if invoice.get("totalAmount") is None:
+                invoice["totalAmount"] = 0
+        except Exception:
+            invoice["totalAmount"] = 0
+
+        # Convert ObjectId fields to strings for safer logging/keys
+        if "_id" in invoice:
+            try:
+                invoice["_id"] = str(invoice["_id"])
+            except Exception:
+                pass
+        if "issuerBusinessId" in invoice:
+            try:
+                invoice["issuerBusinessId"] = str(invoice["issuerBusinessId"])
+            except Exception:
+                pass
+
+        return invoice
     
     async def _generate_journal_entries(
         self,

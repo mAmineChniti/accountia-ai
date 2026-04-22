@@ -5,6 +5,9 @@ from fastapi import APIRouter
 from app.config import get_settings
 from app.db.mongodb import get_platform_db
 from app.services.model_manager import ModelManager
+import structlog
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 settings = get_settings()
@@ -30,8 +33,8 @@ async def readiness_check():
         db = get_platform_db()
         await db.command("ping")
         checks["mongodb"] = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("mongodb_ping_failed", error=str(e))
     
     # Check Model
     checks["model"] = ModelManager.is_ready()

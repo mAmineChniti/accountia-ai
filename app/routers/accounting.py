@@ -1,6 +1,7 @@
 """Accounting API endpoints."""
 
 from datetime import datetime, timedelta
+import calendar
 from typing import Optional
 
 import structlog
@@ -8,7 +9,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.security import secure_endpoint
-from app.db.mongodb import get_tenant_db
+from app.db.mongodb import get_tenant_db, get_platform_db, sanitize_bson_types
+from app.config import get_settings
+from app.tasks.queue import enqueue_job
+from fastapi.encoders import jsonable_encoder
 from app.db.schemas import AccountingTask, AccountingTaskStatus
 from app.services.accounting_engine import AccountingEngine
 from app.services.business_service import BusinessService
@@ -17,25 +21,36 @@ logger = structlog.get_logger()
 
 # All endpoints require API key (only Accountia API can access)
 router = APIRouter(dependencies=[Depends(secure_endpoint)])
+settings = get_settings()
 
 
 class CreateAccountingJobRequest(BaseModel):
     """Request to create an accounting job.
     
     The AI Accountant will look up the business's databaseName from the platform DB.
+    Accepts both snake_case (business_id) and camelCase (businessId) field names.
     """
-    business_id: str = Field(..., description="MongoDB ID of the business to process", example="60d5ecb8b6f3c72e7c8e4a5b")
+    business_id: str = Field(
+        ...,
+        alias="businessId",
+        validation_alias="businessId",
+        description="MongoDB ID of the business to process (business_id or businessId)",
+        example="60d5ecb8b6f3c72e7c8e4a5b",
+    )
     period_start: datetime = Field(..., description="Start of accounting period (ISO format)", example="2024-01-01T00:00:00Z")
     period_end: datetime = Field(..., description="End of accounting period (ISO format)", example="2024-01-31T23:59:59Z")
     
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
             "example": {
                 "business_id": "60d5ecb8b6f3c72e7c8e4a5b",
+                "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
                 "period_start": "2024-01-01T00:00:00Z",
                 "period_end": "2024-01-31T23:59:59Z",
             }
-        }
+        },
+    }
 
 
 class CreateAccountingJobResponse(BaseModel):
@@ -59,6 +74,10 @@ class AccountingJobStatusResponse(BaseModel):
     error_message: Optional[str] = Field(None, description="Error message if failed")
     journal_entries_count: int = Field(0, description="Number of journal entries generated")
     reports_generated: int = Field(0, description="Number of reports generated")
+    # Time estimates
+    estimated_seconds: Optional[int] = Field(None, description="Estimated total runtime in seconds")
+    estimated_completion: Optional[datetime] = Field(None, description="Estimated completion timestamp (UTC)")
+    estimated_time_remaining: Optional[int] = Field(None, description="Estimated remaining time in seconds")
 
 
 class JournalEntryPreview(BaseModel):
@@ -140,23 +159,47 @@ async def process_accounting_task(
         task.started_at = datetime.utcnow()
         task.progress_percent = 10
         
-        tenant_db = get_tenant_db(database_name)
-        await tenant_db["accounting_tasks"].replace_one(
-            {"task_id": task.task_id},
-            task.model_dump(),
-            upsert=True,
-        )
-        
+        # Save initial status using Beanie's save method
+        await task.save()
+
+        # Also sync to tenant DB so the tenant-facing endpoints can see updates
+        try:
+            tenant_db = get_tenant_db(database_name)
+            # ensure indexes exist (idempotent)
+            await tenant_db["accounting_tasks"].create_index("task_id", unique=True)
+            await tenant_db["accounting_tasks"].create_index([
+                ("business_id", 1),
+                ("period_start", -1),
+            ])
+            # Use $set to update fields without overwriting the whole document
+            await tenant_db["accounting_tasks"].update_one(
+                {"task_id": task.task_id},
+                {"$set": jsonable_encoder(task.model_dump())},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("[JOB SYNC] Failed to sync initial task to tenant DB")
+
         # Process
         task.progress_percent = 50
         completed_task = await engine.process_period(task)
-        
-        # Save results
-        await tenant_db["accounting_tasks"].replace_one(
-            {"task_id": completed_task.task_id},
-            completed_task.model_dump(),
-            upsert=True,
-        )
+
+        # Persist completed results to tenant DB (tenant is the authoritative store)
+        try:
+            tenant_db = get_tenant_db(database_name)
+            payload = jsonable_encoder(completed_task.model_dump())
+            # mark source and sync timestamp
+            payload["processed_by"] = getattr(completed_task, "processed_by", "ai-accountant-v1")
+            from datetime import datetime as _dt
+            payload["last_synced_at"] = _dt.utcnow()
+            await tenant_db["accounting_tasks"].update_one(
+                {"task_id": completed_task.task_id},
+                {"$set": payload},
+                upsert=True,
+            )
+            logger.info("[JOB SYNC] Completed task written to tenant DB", task_id=completed_task.task_id)
+        except Exception:
+            logger.exception("[JOB SYNC] Failed to sync completed task to tenant DB")
         
         duration_seconds = (completed_task.completed_at - task.started_at).total_seconds() if completed_task.completed_at and task.started_at else 0
         logger.info(
@@ -180,13 +223,23 @@ async def process_accounting_task(
         task.status = AccountingTaskStatus.FAILED
         task.error_message = str(e)
         task.progress_percent = 0
-        
-        tenant_db = get_tenant_db(database_name)
-        await tenant_db["accounting_tasks"].replace_one(
-            {"task_id": task.task_id},
-            task.model_dump(),
-            upsert=True,
-        )
+
+        # Save failed status using Beanie's save method
+        await task.save()
+
+        # Sync failed status to tenant DB
+        try:
+            tenant_db = get_tenant_db(database_name)
+            payload = jsonable_encoder(task.model_dump())
+            from datetime import datetime as _dt
+            payload["last_synced_at"] = _dt.utcnow()
+            await tenant_db["accounting_tasks"].update_one(
+                {"task_id": task.task_id},
+                {"$set": payload},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("[JOB SYNC] Failed to sync failed task to tenant DB")
 
 
 @router.post(
@@ -202,30 +255,44 @@ async def create_accounting_job(
 ):
     """Create a new accounting job for a business period.
     
-    The AI Accountant will:
-    1. Look up the business from platform DB to get databaseName
-    2. Read invoices from the tenant database
+        The AI Accountant will:
+        1. Look up the business from platform DB to get databaseName
+        2. Read invoices from the tenant database
     3. Process accounting and write results back to tenant DB
     """
     
+    logger.info(
+        "[JOB CREATE] Request received",
+        business_id=request.business_id,
+        period_start=request.period_start.isoformat(),
+        period_end=request.period_end.isoformat(),
+    )
+    
     # Validate period
     period_days = (request.period_end - request.period_start).days
+    logger.debug("[JOB CREATE] Validating period", period_days=period_days)
+    
     if period_days > 365:
+        logger.warning("[JOB CREATE] Period too long", period_days=period_days)
         raise HTTPException(
             status_code=400,
             detail="Accounting period cannot exceed 365 days",
         )
     
     if request.period_end < request.period_start:
+        logger.warning("[JOB CREATE] Invalid period range")
         raise HTTPException(
             status_code=400,
             detail="Period end must be after period start",
         )
     
     # Look up business database name from platform DB
+    logger.debug("[JOB CREATE] Looking up business database", business_id=request.business_id)
     try:
         database_name = await BusinessService.get_database_name(request.business_id)
+        logger.debug("[JOB CREATE] Database name resolved", database_name=database_name)
     except ValueError as e:
+        logger.error("[JOB CREATE] Business lookup failed", business_id=request.business_id, error=str(e))
         raise HTTPException(status_code=404, detail=str(e))
     
     task_id = generate_task_id(
@@ -233,12 +300,15 @@ async def create_accounting_job(
         request.period_start,
         request.period_end,
     )
+    logger.info("[JOB CREATE] Generated task ID", task_id=task_id)
     
     # Check if task already exists
     tenant_db = get_tenant_db(database_name)
+    logger.debug("[JOB CREATE] Checking for existing task")
     existing = await tenant_db["accounting_tasks"].find_one({"task_id": task_id})
     
     if existing and existing.get("status") == AccountingTaskStatus.COMPLETED:
+        logger.info("[JOB CREATE] Task already completed", task_id=task_id)
         return CreateAccountingJobResponse(
             task_id=task_id,
             status="completed",
@@ -246,6 +316,7 @@ async def create_accounting_job(
         )
     
     if existing and existing.get("status") == AccountingTaskStatus.PROCESSING:
+        logger.info("[JOB CREATE] Task already processing", task_id=task_id)
         return CreateAccountingJobResponse(
             task_id=task_id,
             status="processing",
@@ -253,20 +324,55 @@ async def create_accounting_job(
         )
     
     # Create new task
-    task = AccountingTask(
-        business_id=request.business_id,
-        task_id=task_id,
-        period_start=request.period_start,
-        period_end=request.period_end,
-        status=AccountingTaskStatus.PENDING,
-    )
+    logger.debug("[JOB CREATE] Creating AccountingTask object")
+    try:
+        task = AccountingTask(
+                business_id=request.business_id,
+                task_id=task_id,
+                period_start=request.period_start,
+                period_end=request.period_end,
+                status=AccountingTaskStatus.PENDING,
+            )
+        logger.debug("[JOB CREATE] Task object created", task_dict=task.model_dump())
+    except Exception as e:
+        logger.error("[JOB CREATE] Failed to create task object", error=str(e), exc_info=True)
+        raise
     
-    # Save to DB
-    await tenant_db["accounting_tasks"].insert_one(task.model_dump())
+    # Add time estimate before saving so it's persisted and visible to list endpoints
+    estimated_seconds = min(30 + period_days, 300)  # Rough estimate
+    task.estimated_seconds = estimated_seconds
+    task.estimated_completion = datetime.utcnow() + timedelta(seconds=estimated_seconds)
+
+    # Save to DB using Beanie's save method for proper serialization
+    logger.debug("[JOB CREATE] Saving task to database")
+    try:
+        await task.save()
+        logger.info("[JOB CREATE] Task saved successfully", task_id=task_id)
+    except Exception as e:
+        logger.error("[JOB CREATE] Failed to save task", error=str(e), task_id=task_id, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+
+    # Also persist a copy in the tenant DB collection so tenant-facing endpoints
+    # (which read directly from the tenant DB) will see the task immediately.
+    try:
+        # ensure indexes (idempotent)
+        await tenant_db["accounting_tasks"].create_index("task_id", unique=True)
+        await tenant_db["accounting_tasks"].create_index([
+            ("business_id", 1),
+            ("period_start", -1),
+        ])
+        await tenant_db["accounting_tasks"].update_one(
+            {"task_id": task_id},
+            {"$set": jsonable_encoder(task.model_dump())},
+            upsert=True,
+        )
+        logger.debug("[JOB CREATE] Task synced to tenant DB", task_id=task_id)
+    except Exception as e:
+        logger.exception("[JOB CREATE] Failed to sync task to tenant DB", task_id=task_id, error=str(e))
     
     # Start background processing
     logger.info(
-        "[JOB STARTED] Accounting job created",
+        "[JOB CREATE] Starting background processing",
         task_id=task_id,
         business_id=request.business_id,
         period_start=request.period_start.isoformat(),
@@ -274,20 +380,99 @@ async def create_accounting_job(
         database_name=database_name,
     )
     
-    background_tasks.add_task(
-        process_accounting_task,
-        task,
-        database_name,
-    )
+    # If configured, enqueue the job to Redis queue so a worker can process it.
+    if settings.use_task_queue:
+        try:
+            await enqueue_job({
+                "task_id": task_id,
+                "database_name": database_name,
+            })
+            logger.info("[JOB CREATE] Enqueued job to Redis queue", task_id=task_id)
+        except Exception:
+            logger.exception("[JOB CREATE] Failed to enqueue job, falling back to background task")
+            background_tasks.add_task(
+                process_accounting_task,
+                task,
+                database_name,
+            )
+    else:
+        background_tasks.add_task(
+            process_accounting_task,
+            task,
+            database_name,
+        )
     
-    estimated_seconds = min(30 + period_days, 300)  # Rough estimate
-    
+    logger.info("[JOB CREATE] Returning success response", task_id=task_id, estimated_seconds=task.estimated_seconds)
+
     return CreateAccountingJobResponse(
         task_id=task_id,
         status="pending",
         message=f"Accounting job created for period {request.period_start.date()} to {request.period_end.date()}",
-        estimated_completion=f"~{estimated_seconds} seconds",
+        estimated_completion=f"~{task.estimated_seconds} seconds",
     )
+
+
+@router.get(
+    "/jobs",
+    summary="List Accounting Jobs",
+    description="List all accounting jobs for a business with optional filtering.",
+    response_description="List of accounting job summaries",
+)
+async def list_accounting_jobs(
+    business_id: str = Query(..., description="Business ID"),
+    limit: int = Query(10, ge=1, le=100, description="Maximum number of records to return"),
+):
+    """List accounting jobs for a business."""
+    
+    # Look up database name from platform DB
+    try:
+        database_name = await BusinessService.get_database_name(business_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    tenant_db = get_tenant_db(database_name)
+    # Project only the fields we need to reduce IO
+    projection = {
+        "task_id": 1,
+        "business_id": 1,
+        "period_start": 1,
+        "period_end": 1,
+        "status": 1,
+        "progress_percent": 1,
+        "started_at": 1,
+        "completed_at": 1,
+        "journal_entries": 1,
+        "reports": 1,
+        "estimated_seconds": 1,
+        "estimated_completion": 1,
+    }
+    cursor = tenant_db["accounting_tasks"].find(
+        {"business_id": business_id}, projection
+    ).sort("created_at", -1).limit(limit)
+
+    tasks = await cursor.to_list(length=limit)
+    tasks = [sanitize_bson_types(t) for t in tasks]
+    
+    return {
+        "business_id": business_id,
+        "jobs": [
+            {
+                "task_id": t["task_id"],
+                "period_start": t["period_start"],
+                "period_end": t["period_end"],
+                "status": t["status"],
+                "progress_percent": t.get("progress_percent", 0),
+                "estimated_seconds": t.get("estimated_seconds"),
+                "estimated_completion": t.get("estimated_completion"),
+                "estimated_time_remaining": None,
+                "started_at": t.get("started_at"),
+                "completed_at": t.get("completed_at"),
+                "journal_entries_count": len(t.get("journal_entries", [])),
+                "reports_generated": len(t.get("reports", [])),
+            }
+            for t in tasks
+        ],
+    }
 
 
 @router.get(
@@ -311,6 +496,7 @@ async def get_job_status(
     
     tenant_db = get_tenant_db(database_name)
     task_data = await tenant_db["accounting_tasks"].find_one({"task_id": task_id})
+    task_data = sanitize_bson_types(task_data)
     
     if not task_data:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -327,6 +513,13 @@ async def get_job_status(
         error_message=task_data.get("error_message"),
         journal_entries_count=len(task_data.get("journal_entries", [])),
         reports_generated=len(task_data.get("reports", [])),
+        estimated_seconds=task_data.get("estimated_seconds"),
+        estimated_completion=task_data.get("estimated_completion"),
+        estimated_time_remaining=(
+            max(0, int((task_data.get("estimated_seconds", 0) - ((datetime.utcnow() - task_data.get("started_at")).total_seconds()))) )
+            if task_data.get("status") in ["processing", "pending"] and task_data.get("estimated_seconds") and task_data.get("started_at")
+            else None
+        ),
     )
 
 
@@ -351,6 +544,7 @@ async def get_job_results(
     
     tenant_db = get_tenant_db(database_name)
     task_data = await tenant_db["accounting_tasks"].find_one({"task_id": task_id})
+    task_data = sanitize_bson_types(task_data)
     
     if not task_data:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -399,6 +593,83 @@ async def get_job_results(
     )
 
 
+@router.delete(
+    "/jobs/{task_id}",
+    summary="Cancel Accounting Job",
+    description="Cancel a pending or processing accounting job. Cannot cancel completed or failed jobs.",
+    response_description="Cancellation confirmation",
+)
+async def cancel_accounting_job(
+    task_id: str,
+    business_id: str = Query(..., description="Business ID"),
+):
+    """Cancel an accounting job if it's still pending or processing."""
+    
+    # Look up database name from platform DB
+    try:
+        database_name = await BusinessService.get_database_name(business_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    tenant_db = get_tenant_db(database_name)
+    task_data = await tenant_db["accounting_tasks"].find_one({"task_id": task_id})
+    
+    if not task_data:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    current_status = task_data.get("status")
+    
+    # Can only cancel pending or processing jobs
+    if current_status not in [AccountingTaskStatus.PENDING, AccountingTaskStatus.PROCESSING]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel job with status '{current_status}'. Only pending or processing jobs can be cancelled.",
+        )
+    
+    # Prevent cancelling if platform record is already completed
+    try:
+        platform_db = get_platform_db()
+        platform_task = await platform_db["accounting_tasks"].find_one({"task_id": task_id})
+        if platform_task and platform_task.get("status") == AccountingTaskStatus.COMPLETED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cancel job; platform record already completed for task {task_id}",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        # If platform DB not available, proceed with tenant cancellation but log
+        logger.exception("platform_db_check_failed", task_id=task_id)
+
+    # Update status to cancelled in both tenant and platform DBs (best-effort)
+    cancel_payload = {
+        "$set": {
+            "status": AccountingTaskStatus.CANCELLED,
+            "completed_at": datetime.utcnow(),
+            "error_message": "Job cancelled by user",
+        }
+    }
+    # Tenant update (authoritative for tenant API)
+    try:
+        await tenant_db["accounting_tasks"].update_one({"task_id": task_id}, cancel_payload)
+    except Exception:
+        logger.exception("tenant_cancel_failed", task_id=task_id)
+
+    # Platform update (best-effort) to keep records in sync
+    try:
+        platform_db = get_platform_db()
+        await platform_db["accounting_tasks"].update_one({"task_id": task_id}, cancel_payload)
+    except Exception:
+        logger.exception("platform_cancel_failed", task_id=task_id)
+    
+    return {
+        "task_id": task_id,
+        "status": "cancelled",
+        "message": "Accounting job cancelled successfully",
+        "previous_status": current_status,
+    }
+
+
 @router.get(
     "/business/{business_id}/history",
     summary="Get Accounting History",
@@ -423,7 +694,7 @@ async def get_accounting_history(
     ).sort("created_at", -1).limit(limit)
     
     tasks = await cursor.to_list(length=limit)
-    
+    tasks = [sanitize_bson_types(t) for t in tasks]
     return {
         "business_id": business_id,
         "tasks": [
@@ -481,6 +752,7 @@ async def get_all_accountant_work(
     # Get all tasks
     cursor = tenant_db["accounting_tasks"].find(query).sort("created_at", -1)
     tasks = await cursor.to_list(length=1000)
+    tasks = [sanitize_bson_types(t) for t in tasks]
     
     # Calculate totals
     total_invoices_processed = sum(
@@ -590,7 +862,8 @@ async def get_tunisian_tax_summary(
     monthly_taxes = []
     for month in range(1, 13):
         month_start = datetime(year, month, 1)
-        month_end = datetime(year, month, 28 if month != 2 else 28)  # Approximate
+        last_day = calendar.monthrange(year, month)[1]
+        month_end = datetime(year, month, last_day, 23, 59, 59)
         
         month_invoices = [
             inv for inv in invoices
