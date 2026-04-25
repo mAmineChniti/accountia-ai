@@ -27,9 +27,10 @@ class TrainingDataRequest(BaseModel):
 
 class TrainingDataResponse(BaseModel):
     """Response after generating training data."""
-    examples_generated: int
-    output_file: str
-    sample_prompt: str
+    examples_generated: int = Field(..., alias="examplesGenerated")
+    output_file: str = Field(..., alias="outputFile")
+    sample_prompt: str = Field(..., alias="samplePrompt")
+    model_config = {"populate_by_name": True}
 
 
 class FineTuneRequest(BaseModel):
@@ -43,19 +44,21 @@ class FineTuneRequest(BaseModel):
 
 class FineTuneResponse(BaseModel):
     """Response after starting fine-tuning."""
-    job_id: str
+    job_id: str = Field(..., alias="jobId")
     status: str
-    estimated_duration_minutes: int
-    output_dir: str
+    estimated_duration_minutes: int = Field(..., alias="estimatedDurationMinutes")
+    output_dir: str = Field(..., alias="outputDir")
+    model_config = {"populate_by_name": True}
 
 
 class ModelStatusResponse(BaseModel):
     """Model status response."""
     initialized: bool
-    base_model: str
-    using_fine_tuned: bool
+    base_model: str = Field(..., alias="baseModel")
+    using_fine_tuned: bool = Field(..., alias="usingFineTuned")
     device: str
-    fine_tuned_path: Optional[str]
+    fine_tuned_path: Optional[str] = Field(None, alias="fineTunedPath")
+    model_config = {"populate_by_name": True}
 
 
 class TrainOnBusinessDataRequest(BaseModel):
@@ -75,22 +78,23 @@ class TrainOnBusinessDataRequest(BaseModel):
 
 class TrainOnBusinessDataResponse(BaseModel):
     """Response after exporting business data for training."""
-    business_id: str
-    business_name: str
-    database_name: str
-    invoices_exported: int
-    products_exported: int
-    training_examples_generated: int
-    output_file: str
-    fine_tune_job_id: Optional[str] = None
+    business_id: str = Field(..., alias="businessId")
+    business_name: str = Field(..., alias="businessName")
+    database_name: str = Field(..., alias="databaseName")
+    invoices_exported: int = Field(..., alias="invoicesExported")
+    products_exported: int = Field(..., alias="productsExported")
+    training_examples_generated: int = Field(..., alias="trainingExamplesGenerated")
+    output_file: str = Field(..., alias="outputFile")
+    fine_tune_job_id: Optional[str] = Field(None, alias="fineTuneJobId")
     message: str
+    model_config = {"populate_by_name": True}
 
 
 @router.get("/status", response_model=ModelStatusResponse)
 async def get_model_status():
     """Get current model status."""
     info = ModelManager.get_model_info()
-    return ModelStatusResponse(**info)
+    return ModelStatusResponse(**info).model_dump(by_alias=True)
 
 
 @router.post("/data/generate", response_model=TrainingDataResponse)
@@ -116,7 +120,7 @@ async def generate_training_data(request: TrainingDataRequest):
         examples_generated=len(examples),
         output_file=str(output_path),
         sample_prompt=sample.get("instruction", "")[:200] + "...",
-    )
+    ).model_dump(by_alias=True)
 
 
 @router.post("/fine-tune", response_model=FineTuneResponse)
@@ -157,7 +161,7 @@ async def start_fine_tuning(
         status="started",
         estimated_duration_minutes=estimated_minutes,
         output_dir=output_dir,
-    )
+    ).model_dump(by_alias=True)
 
 
 @router.post("/reload")
@@ -167,10 +171,7 @@ async def reload_model():
     try:
         await ModelManager.initialize()
         info = ModelManager.get_model_info()
-        return {
-            "status": "reloaded",
-            "model_info": info,
-        }
+        return {"status": "reloaded", "model_info": info}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to reload model: {str(e)}")
 
@@ -187,10 +188,7 @@ async def get_training_samples(n: int = Query(5, ge=1, le=20)):
         output_path=None,  # Don't save, just return
     )
     
-    return {
-        "count": len(examples),
-        "samples": examples,
-    }
+    return {"count": len(examples), "samples": examples}
 
 
 @router.post("/data/export-business", response_model=TrainOnBusinessDataResponse)

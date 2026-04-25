@@ -115,44 +115,43 @@ Creates a new accounting job for a business period. The AI Accountant will:
 3. Generate journal entries and financial reports
 4. Store results in the business's tenant database
 
-**Request Body:**
+**Request Body (use camelCase):**
 ```json
 {
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"period_start": "2024-01-01T00:00:00Z",
-	"period_end": "2024-01-31T23:59:59Z"
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "periodStart": "2024-01-01T00:00:00Z",
+  "periodEnd": "2024-01-31T23:59:59Z"
 }
 ```
-
-**Note:** Accepts both `business_id` (snake_case) and `businessId` (camelCase) for the business identifier field.
 
 **Validation:** Period max 365 days, end must be after start.
 
 **Response (New Job):**
 ```json
 {
-	"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-	"status": "pending",
-	"message": "Accounting job created for period 2024-01-01 to 2024-01-31",
-	"estimated_completion": "~59 seconds"
+  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+  "status": "pending",
+  "message": "Accounting job created for period 2024-01-01 to 2024-01-31",
+  "estimatedSeconds": 59,
+  "estimatedCompletion": "2024-01-01T00:00:59Z"
 }
 ```
 
 **Response (Already Processing):**
 ```json
 {
-	"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-	"status": "processing",
-	"message": "Accounting job already in progress."
+  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+  "status": "processing",
+  "message": "Accounting job already in progress."
 }
 ```
 
 **Response (Already Completed):**
 ```json
 {
-	"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-	"status": "completed",
-	"message": "Accounting already completed. Use GET /jobs/{task_id} for results."
+  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+  "status": "completed",
+  "message": "Accounting already completed. Use GET /jobs/{task_id} for results."
 }
 ```
 
@@ -163,31 +162,31 @@ Creates a new accounting job for a business period. The AI Accountant will:
 
 ### 2. List Accounting Jobs
 
-`GET /api/accounting/jobs?business_id={business_id}&limit=10`
+`GET /api/accounting/jobs?businessId={businessId}&limit=10`
 
 List all accounting jobs for a business.
 
 **Query Parameters:**
-- `business_id` (required) - Business ID
+- `businessId` (required) - Business ID
 - `limit` (optional) - Max results (1-100, default 10)
 
 **Response:**
 ```json
 {
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"jobs": [
-		{
-			"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-			"period_start": "2024-01-01T00:00:00",
-			"period_end": "2024-01-31T23:59:59",
-			"status": "completed",
-			"progress_percent": 100,
-			"started_at": "2024-04-19T10:30:00",
-			"completed_at": "2024-04-19T10:31:15",
-			"journal_entries_count": 42,
-			"reports_generated": 3
-		}
-	]
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "jobs": [
+    {
+      "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+      "periodStart": "2024-01-01T00:00:00",
+      "periodEnd": "2024-01-31T23:59:59",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2024-04-19T10:30:00",
+      "completedAt": "2024-04-19T10:31:15",
+      "journalEntriesCount": 42,
+      "reportsGenerated": 3
+    }
+  ]
 }
 ```
 
@@ -197,21 +196,21 @@ List all accounting jobs for a business.
 
 ### 3. Get Job Status
 
-`GET /api/accounting/jobs/{task_id}?business_id={business_id}`
+`GET /api/accounting/jobs/{task_id}?businessId={businessId}`
 
 **Response:**
 ```json
 {
-	"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"period_start": "2024-01-01T00:00:00",
-	"period_end": "2024-01-31T23:59:59",
-	"status": "completed",
-	"progress_percent": 100,
-	"started_at": "2024-04-19T10:30:00",
-	"completed_at": "2024-04-19T10:31:15",
-	"journal_entries_count": 42,
-	"reports_generated": 3
+  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "periodStart": "2024-01-01T00:00:00",
+  "periodEnd": "2024-01-31T23:59:59",
+  "status": "completed",
+  "progressPercent": 100,
+  "startedAt": "2024-04-19T10:30:00",
+  "completedAt": "2024-04-19T10:31:15",
+  "journalEntriesCount": 42,
+  "reportsGenerated": 3
 }
 ```
 
@@ -222,47 +221,68 @@ List all accounting jobs for a business.
 
 ### 4. Get Job Results
 
-`GET /api/accounting/jobs/{task_id}/results?business_id={business_id}`
+`GET /api/accounting/jobs/{task_id}/results?businessId={businessId}`
 
 **Response (Full Results):**
 ```json
 {
-	"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"status": "completed",
-  
-	"total_revenue": 12500.00,
-	"total_expenses": 5000.00,
-	"gross_profit": 7500.00,
-	"net_profit": 6750.00,
-	"accounts_receivable": 2500.00,
-	"accounts_payable": 1000.00,
-	"cash_position": 8500.00,
-  
-	"tax_calculations": [
-		{
-			"tax_type": "VAT",
-			"jurisdiction": "Tunisia",
-			"taxable_amount": 12500.00,
-			"tax_rate": 0.19,
-			"tax_amount": 2375.00
-		}
-	],
-  
-	"ai_insights": "Revenue up 15% vs last month. Review A/R aging.",
-	"recommendations": ["Follow up on 3 overdue invoices"],
-	"anomalies_detected": [],
-  
-	"journal_entries_preview": [
-		{
-			"date": "2024-01-15T00:00:00",
-			"account": "Accounts Receivable",
-			"debit": 12500.00,
-			"credit": 0.00,
-			"description": "Invoice INV-2024-001"
-		}
-	],
-	"total_journal_entries": 42
+  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "status": "completed",
+
+  "totalRevenue": 12500.00,
+  "totalExpenses": 5000.00,
+  "grossProfit": 7500.00,
+  "netProfit": 6750.00,
+  "accountsReceivable": 2500.00,
+  "accountsPayable": 1000.00,
+  "cashPosition": 8500.00,
+
+  "taxCalculations": [
+    {
+      "taxType": "VAT",
+      "jurisdiction": "Tunisia",
+      "taxableAmount": 12500.00,
+      "taxRate": 0.19,
+      "taxAmount": 2375.00
+    }
+  ],
+
+  "aiInsights": "Revenue up 15% vs last month. Review A/R aging.",
+  "recommendations": ["Follow up on 3 overdue invoices"],
+  "anomaliesDetected": [
+    {
+      "id": "A-1001",
+      "type": "duplicate_invoice",
+      "severity": "medium",
+      "description": "Detected duplicate invoices INV-2024-007 and INV-2024-008 (same invoice number, different amounts).",
+      "detectedAt": "2024-01-20T09:12:34Z",
+      "affectedRecords": ["INV-2024-007", "INV-2024-008"],
+      "suggestedAction": "Review the invoices, confirm the correct record, mark the duplicate and adjust journal entries if needed."
+    },
+    {
+      "id": "A-1002",
+      "type": "negative_revenue",
+      "severity": "high",
+      "description": "Negative revenue detected for invoice INV-2024-015 indicating a possible refund or data entry error.",
+      "detectedAt": "2024-01-25T14:05:00Z",
+      "affectedRecords": ["INV-2024-015"],
+      "suggestedAction": "Verify the invoice lines and issue a credit note or correct the invoice amount."
+    }
+  ],
+
+  "journalEntries": [
+    {
+      "date": "2024-01-15T00:00:00",
+      "account": "Accounts Receivable",
+      "debit": 12500.00,
+      "credit": 0.00,
+      "description": "Invoice INV-2024-001",
+      "invoiceId": "INV-2024-001",
+      "metadata": {}
+    }
+  ],
+  "totalJournalEntries": 42
 }
 ```
 
@@ -272,17 +292,17 @@ List all accounting jobs for a business.
 
 ### 5. Cancel Accounting Job
 
-`DELETE /api/accounting/jobs/{task_id}?business_id={business_id}`
+`DELETE /api/accounting/jobs/{task_id}?businessId={businessId}`
 
 Cancel a pending or processing accounting job. Cannot cancel completed, failed, or already cancelled jobs.
 
 **Response (Success):**
 ```json
 {
-	"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-	"status": "cancelled",
-	"message": "Accounting job cancelled successfully",
-	"previous_status": "pending"
+  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+  "status": "cancelled",
+  "message": "Accounting job cancelled successfully",
+  "previousStatus": "pending"
 }
 ```
 
@@ -300,16 +320,16 @@ Returns list of all accounting periods for a business.
 **Response:**
 ```json
 {
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"tasks": [
-		{
-			"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240201_20240229",
-			"period_start": "2024-02-01T00:00:00",
-			"period_end": "2024-02-29T23:59:59",
-			"status": "completed",
-			"completed_at": "2024-03-01T10:15:30"
-		}
-	]
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "tasks": [
+    {
+      "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240201_20240229",
+      "periodStart": "2024-02-01T00:00:00",
+      "periodEnd": "2024-02-29T23:59:59",
+      "status": "completed",
+      "completedAt": "2024-03-01T10:15:30"
+    }
+  ]
 }
 ```
 
@@ -324,98 +344,97 @@ Comprehensive work log with full details.
 **Response:**
 ```json
 {
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"database_name": "business_60d5ecb8b6f3c72e7c8e4a5b_db",
-	"summary": {
-		"total_accounting_periods": 12,
-		"completed": 12,
-		"pending": 0,
-		"processing": 0,
-		"failed": 0,
-		"total_journal_entries_generated": 240,
-		"total_revenue_processed": 150000.00
-	},
-	"accounting_periods": [
-		{
-			"task_id": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-			"period_start": "2024-01-01T00:00:00",
-			"period_end": "2024-01-31T23:59:59",
-			"status": "completed",
-			"created_at": "2024-02-01T09:00:00",
-			"started_at": "2024-02-01T09:00:05",
-			"completed_at": "2024-02-01T09:02:30",
-			"journal_entries_count": 20,
-			"tax_calculations_count": 3,
-			"reports_count": 2,
-			"has_ai_insights": true,
-			"recommendations_count": 3,
-			"financial_summary": {
-				"total_revenue": 12500.00,
-				"total_expenses": 5000.00,
-				"gross_profit": 7500.00,
-				"net_profit": 6750.00,
-				"accounts_receivable": 2500.00,
-				"accounts_payable": 1000.00,
-				"cash_position": 8500.00
-			}
-		}
-	]
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "databaseName": "business_60d5ecb8b6f3c72e7c8e4a5b_db",
+  "summary": {
+    "totalAccountingPeriods": 12,
+    "completed": 12,
+    "pending": 0,
+    "processing": 0,
+    "failed": 0,
+    "totalJournalEntriesGenerated": 240,
+    "totalRevenueProcessed": 150000.00
+  },
+  "accountingPeriods": [
+    {
+      "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+      "periodStart": "2024-01-01T00:00:00",
+      "periodEnd": "2024-01-31T23:59:59",
+      "status": "completed",
+      "createdAt": "2024-02-01T09:00:00",
+      "startedAt": "2024-02-01T09:00:05",
+      "completedAt": "2024-02-01T09:02:30",
+      "journalEntriesCount": 20,
+      "taxCalculationsCount": 3,
+      "reportsCount": 2,
+      "hasAiInsights": true,
+      "recommendationsCount": 3,
+      "financialSummary": {
+        "totalRevenue": 12500.00,
+        "totalExpenses": 5000.00,
+        "grossProfit": 7500.00,
+        "netProfit": 6750.00,
+        "accountsReceivable": 2500.00,
+        "accountsPayable": 1000.00,
+        "cashPosition": 8500.00
+      }
+    }
+  ]
 }
 ```
 
 ### 8. Get Tunisian Tax Summary
-
 `GET /api/accounting/business/{business_id}/taxes?year=2024`
 
-Calculates VAT, corporate tax, withholding per Tunisian law.
+Returns a persisted tax summary for the given year. If a summary does not exist the endpoint returns `404` and instructs the caller to POST to the calculate endpoint to generate and persist the summary.
 
 **Response:**
 ```json
 {
-	"business_id": "60d5ecb8b6f3c72e7c8e4a5b",
-	"business_name": "Acme Corp",
-	"year": 2024,
-	"currency": "TND",
-	"summary": {
-		"annual_vat_total": 28500.00,
-		"annual_corporate_tax": 13500.00,
-		"annual_withholding_tax": 2250.00,
-		"total_tax_liability": 44250.00
-	},
-	"vat_breakdown": {
-		"standard_rate_19_percent": 28500.00,
-		"reduced_rate_13_percent": 0.00,
-		"reduced_rate_7_percent": 0.00
-	},
-	"monthly_details": [
-		{
-			"month": 1,
-			"period": "01/2024",
-			"vat_standard_19": 2375.00,
-			"vat_reduced_13": 0.00,
-			"vat_reduced_7": 0.00,
-			"vat_total": 2375.00,
-			"taxable_income": 7500.00,
-			"corporate_tax_due": 1125.00,
-			"withholding_tax": 187.50,
-			"total_tax_liability": 3631.25,
-			"due_date": "2024-02-28T00:00:00"
-		}
-	],
-	"tax_calendar": [
-		{
-			"period": "01/2024",
-			"due_date": "2024-02-28T00:00:00",
-			"description": "VAT due for January 2024"
-		}
-	],
-	"notes": [
-		"VAT (TVA) is due by the 28th of the following month",
-		"Standard VAT rate: 19%",
-		"Reduced rates: 13% (transport, tourism), 7% (medical, education)",
-		"Corporate tax (IS): 15% for SMEs, 25% for larger companies",
-		"Withholding tax: 1.5% on B2B transactions"
-	]
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "businessName": "Acme Corp",
+  "year": 2024,
+  "currency": "TND",
+  "summary": {
+    "annualVatTotal": 28500.00,
+    "annualCorporateTax": 13500.00,
+    "annualWithholdingTax": 2250.00,
+    "totalTaxLiability": 44250.00
+  },
+  "vatBreakdown": {
+    "standardRate19Percent": 28500.00,
+    "reducedRate13Percent": 0.00,
+    "reducedRate7Percent": 0.00
+  },
+  "monthlyDetails": [
+    {
+      "month": 1,
+      "period": "01/2024",
+      "vatStandard19": 2375.00,
+      "vatReduced13": 0.00,
+      "vatReduced7": 0.00,
+      "vatTotal": 2375.00,
+      "taxableIncome": 7500.00,
+      "corporateTaxDue": 1125.00,
+      "withholdingTax": 187.50,
+      "totalTaxLiability": 3631.25,
+      "dueDate": "2024-02-28T00:00:00"
+    }
+  ],
+  "taxCalendar": [
+    {
+      "period": "01/2024",
+      "dueDate": "2024-02-28T00:00:00",
+      "description": "VAT due for January 2024"
+    }
+  ],
+  "notes": [
+    "VAT (TVA) is due by the 28th of the following month",
+    "Standard VAT rate: 19%",
+    "Reduced rates: 13% (transport, tourism), 7% (medical, education)",
+    "Corporate tax (IS): 15% for SMEs, 25% for larger companies",
+    "Withholding tax: 1.5% on B2B transactions"
+  ]
 }
 ```
 
@@ -433,7 +452,60 @@ Calculates VAT, corporate tax, withholding per Tunisian law.
 | DELETE | `/api/accounting/jobs/{task_id}` | Cancel job | Yes |
 | GET | `/api/accounting/business/{business_id}/history` | Accounting history | Yes |
 | GET | `/api/accounting/business/{business_id}/work` | All work details | Yes |
-| GET | `/api/accounting/business/{business_id}/taxes` | Tax summary | Yes |
+| GET | `/api/accounting/business/{business_id}/taxes` | Tax summary (returns 404 if not calculated) | Yes |
+| POST | `/api/accounting/business/{business_id}/taxes/calculate` | Calculate and persist Tunisian tax summary for a year | Yes |
+
+### Security
+
+- All `/api/accounting/*` endpoints are protected by an API key check. Provide the API key in the `X-API-Key` header when calling protected endpoints. The key is configured via the `API_KEY` environment variable (see `app/config.py`). If `API_KEY` is not set the service will run unprotected but log a warning.
+- An optional `Authorization: Bearer <token>` JWT may be provided; the service accepts a bearer token but does not perform full JWT validation by default (Accountia API should validate tokens). Security behavior is implemented in `app/core/security.py`.
+
+### Task Queue & Worker
+
+- To enable Redis-backed queueing set `USE_TASK_QUEUE=true` and configure `REDIS_URL`.
+- Enqueued jobs are pushed to Redis list key `accounting_job_queue` by `app/tasks/queue.py`.
+- A simple worker is provided at `scripts/worker.py`. Run it from the project root (activate your virtualenv first):
+
+```bash
+source venv/bin/activate
+python -m scripts.worker
+```
+
+- The `scripts/estimate_eta.py` script computes average seconds-per-journal-entry from historical completed tasks and helps tune the `estimated_seconds` value used when creating jobs.
+
+### Training / Admin Endpoints (optional)
+
+There is an administrative training router implemented at `app/routers/training.py` that provides utilities for generating synthetic training data, exporting business data for training, and starting fine-tuning. Important: this router is not mounted in the application by default — `app/main.py` currently includes only the accounting and health routers. To expose the training endpoints, add the following to `app/main.py`:
+
+```py
+from app.routers import training
+app.include_router(training.router, prefix="/api/training", tags=["Training"])
+```
+
+If mounted, the key training endpoints are:
+
+- `GET /api/training/status` — Returns current model status and which model path is in use.
+- `POST /api/training/data/generate` — Generate synthetic training data. Body: `{ "num_examples": 1000, "output_file": "training_data.jsonl" }`.
+- `POST /api/training/fine-tune` — Start fine-tuning on a previously generated training file. This runs in background; response includes a `jobId`.
+- `POST /api/training/reload` — Reload model weights (use after fine-tuning).
+- `GET /api/training/data/samples?n=5` — Return sample training examples.
+- `POST /api/training/data/export-business` — Export invoices/products for a `businessId` and produce training examples; optionally starts fine-tuning when `autoFineTune=true` and there's enough data.
+
+Example flow (if training router mounted):
+
+```bash
+# Generate synthetic training data
+curl -X POST http://localhost:8000/api/training/data/generate \
+  -H "Content-Type: application/json" \
+  -d '{"num_examples":1000, "output_file":"training_data.jsonl"}'
+
+# Start fine-tuning
+curl -X POST http://localhost:8000/api/training/fine-tune \
+  -H "Content-Type: application/json" \
+  -d '{"training_file":"training_data.jsonl","num_epochs":3}'
+```
+
+I can enable these routes in the app and add detailed request/response examples if you want.
 
 ### Tax Rates Reference
 
@@ -451,29 +523,29 @@ Calculates VAT, corporate tax, withholding per Tunisian law.
 ```bash
 # 1. Create job
 curl -X POST http://localhost:8000/api/accounting/jobs \
-	-H "X-API-Key: your_api_key" \
-	-H "Content-Type: application/json" \
-	-d '{"business_id":"60d5ecb8b6f3c72e7c8e4a5b","period_start":"2024-01-01T00:00:00Z","period_end":"2024-01-31T23:59:59Z"}'
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"businessId":"60d5ecb8b6f3c72e7c8e4a5b","periodStart":"2024-01-01T00:00:00Z","periodEnd":"2024-01-31T23:59:59Z"}'
 
 # 2. Poll for completion
-curl "http://localhost:8000/api/accounting/jobs/{task_id}?business_id=60d5ecb8b6f3c72e7c8e4a5b" \
-	-H "X-API-Key: your_api_key"
+curl "http://localhost:8000/api/accounting/jobs/{task_id}?businessId=60d5ecb8b6f3c72e7c8e4a5b" \
+  -H "X-API-Key: your_api_key"
 
 # 3. Get results
-curl "http://localhost:8000/api/accounting/jobs/{task_id}/results?business_id=60d5ecb8b6f3c72e7c8e4a5b" \
-	-H "X-API-Key: your_api_key"
+curl "http://localhost:8000/api/accounting/jobs/{task_id}/results?businessId=60d5ecb8b6f3c72e7c8e4a5b" \
+  -H "X-API-Key: your_api_key"
 
 # 4. List all jobs for a business
-curl "http://localhost:8000/api/accounting/jobs?business_id=60d5ecb8b6f3c72e7c8e4a5b&limit=10" \
-	-H "X-API-Key: your_api_key"
+curl "http://localhost:8000/api/accounting/jobs?businessId=60d5ecb8b6f3c72e7c8e4a5b&limit=10" \
+  -H "X-API-Key: your_api_key"
 
 # 5. Cancel a pending/processing job
-curl -X DELETE "http://localhost:8000/api/accounting/jobs/{task_id}?business_id=60d5ecb8b6f3c72e7c8e4a5b" \
-	-H "X-API-Key: your_api_key"
+curl -X DELETE "http://localhost:8000/api/accounting/jobs/{task_id}?businessId=60d5ecb8b6f3c72e7c8e4a5b" \
+  -H "X-API-Key: your_api_key"
 
 # 6. Get tax summary
 curl "http://localhost:8000/api/accounting/business/60d5ecb8b6f3c72e7c8e4a5b/taxes?year=2024" \
-	-H "X-API-Key: your_api_key"
+  -H "X-API-Key: your_api_key"
 ```
 
 ## Setup
@@ -618,11 +690,11 @@ async runAccounting(
 			'X-API-Key': process.env.ACCOUNTIA_API_KEY,
 			// optional: 'Authorization': `Bearer ${token}` if you use JWTs
 		},
-		body: JSON.stringify({
-			business_id: businessId,
-			period_start: dto.startDate,
-			period_end: dto.endDate,
-		}),
+    body: JSON.stringify({
+      businessId: businessId,
+      periodStart: dto.startDate,
+      periodEnd: dto.endDate,
+    }),
 	});
 
 	if (!response.ok) {
@@ -664,10 +736,24 @@ Scenarios covered:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `MONGO_URI` | MongoDB connection string | Yes |
-| `GROQ_API_KEY` | Groq API for fallback | No |
-| `USE_FINE_TUNED` | Use fine-tuned model | No |
-| `DEBUG` | Enable debug mode | No |
+| `MONGO_URI` | MongoDB connection string (including platform DB name) | Yes |
+| `GROQ_API_KEY` | Groq API key for fallback inference | No |
+| `USE_FINE_TUNED` | Use locally fine-tuned model if available (`true`/`false`) | No |
+| `DEBUG` | Enable debug mode (enables permissive CORS and extra logs) | No |
+
+Additional configuration options (set via `.env` or environment):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REDIS_URL` | Redis connection string used for the task queue and caching | `redis://localhost:6379/0` |
+| `USE_TASK_QUEUE` | When `true` newly created accounting jobs are enqueued to Redis instead of run inline | `false` |
+| `API_KEY` | Service-to-service API key required in `X-API-Key` header for protected endpoints | None (recommended to set) |
+| `JWT_SECRET` | Optional secret for validating JWTs (the service accepts Bearer tokens but does not validate by default) | None |
+| `BASE_MODEL` | Base LLM identifier used for local inference | `Qwen/Qwen2.5-1.5B-Instruct` |
+| `FINE_TUNED_MODEL_PATH` | Path to local fine-tuned model (if `USE_FINE_TUNED=true`) | `./models/accountant-lora` |
+| `TRAINING_OUTPUT_DIR` | Directory where fine-tuning output is written | `./models/accountant-lora` |
+
+All settings are defined in `app/config.py` (the `Settings` model). The service reads `.env` by default via `pydantic-settings`.
 
 ## Developer Notes: Recent Changes & How to Run
 
@@ -715,9 +801,9 @@ python -m scripts.worker
 
 ```bash
 curl -X POST http://localhost:8000/api/accounting/jobs \
-	-H "X-API-Key: your_api_key" \
-	-H "Content-Type: application/json" \
-	-d '{"business_id":"69d596205c7d958b7c5f0709","period_start":"2024-03-01T00:00:00Z","period_end":"2024-03-31T23:59:59Z"}'
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"businessId":"69d596205c7d958b7c5f0709","periodStart":"2024-03-01T00:00:00Z","periodEnd":"2024-03-31T23:59:59Z"}'
 ```
 
 Notes & recommended next steps
@@ -732,110 +818,170 @@ If you'd like, I can run the ETA script against your local/dev DB and wire the c
 
 ## Schema Definitions (Full)
 
-Below are field-level JSON schemas (types and descriptions) for the primary models used by the API. Use these when validating requests or building clients.
+Below are the authoritative JSON schemas and examples you should use when building clients against the HTTP API. Note: tenant database documents are persisted in snake_case (see the tenant examples) while API responses use camelCase.
 
-1) AccountingTask (tenant DB document)
+1) AccountingTask (tenant DB document - snake_case)
 
 ```json
 {
-	"business_id": "string",               // MongoDB business id
-	"task_id": "string",                   // unique task id: {business}_{YYYYMMDD}_{YYYYMMDD}
-	"period_start": "ISO datetime",
-	"period_end": "ISO datetime",
-	"status": "pending|processing|completed|failed|cancelled",
-	"progress_percent": 0,                  // integer 0-100
-	"started_at": "ISO datetime|null",
-	"completed_at": "ISO datetime|null",
-	"error_message": "string|null",
-	"estimated_seconds": 120|null,          // integer seconds
-	"estimated_completion": "ISO datetime|null",
-	"journal_entries": [ JournalEntry ],    // list of journal entries (may be large)
-	"tax_calculations": [ TaxCalculation ],
-	"financial_summary": FinancialSummary|null,
-	"reports": [ AccountingReport ],
-	"ai_insights": "string",
-	"recommendations": [ "string" ],
-	"anomalies_detected": [ {..} ],
-	"created_at": "ISO datetime",
-	"processed_by": "string"
+  "business_id": "string",
+  "task_id": "string",
+  "period_start": "2024-01-01T00:00:00Z",
+  "period_end": "2024-01-31T23:59:59Z",
+  "status": "completed",
+  "progress_percent": 100,
+  "started_at": "2024-02-01T09:00:05Z",
+  "completed_at": "2024-02-01T09:02:30Z",
+  "estimated_seconds": 120,
+  "estimated_completion": "2024-02-01T09:02:05Z",
+  "journal_entries": [ /* JournalEntry objects */ ],
+  "tax_calculations": [ /* TaxCalculation objects */ ],
+  "financial_summary": { /* FinancialSummary */ },
+  "reports": [],
+  "ai_insights": "string",
+  "recommendations": [],
+  "anomalies_detected": [],
+  "created_at": "2024-02-01T09:00:00Z",
+  "processed_by": "ai-accountant-v1"
 }
 ```
 
-2) JournalEntry
+2) AccountingJobStatusResponse (API response - camelCase)
 
 ```json
 {
-	"date": "ISO datetime",
-	"account": "string",
-	"debit": 0.0,          // decimal
-	"credit": 0.0,         // decimal
-	"description": "string",
-	"invoice_id": "string|null",
-	"metadata": { }
+  "taskId": "string",
+  "businessId": "string",
+  "periodStart": "2024-01-01T00:00:00Z",
+  "periodEnd": "2024-01-31T23:59:59Z",
+  "status": "processing",
+  "progressPercent": 55,
+  "startedAt": "2024-02-01T09:00:05Z",
+  "completedAt": null,
+  "errorMessage": null,
+  "journalEntriesCount": 42,
+  "reportsGenerated": 3,
+  "estimatedSeconds": 120,
+  "estimatedCompletion": "2024-02-01T09:02:05Z",
+  "estimatedTimeRemaining": 65
 }
 ```
 
-3) TaxCalculation
+3) AccountingResultsResponse (API response - camelCase)
 
 ```json
 {
-	"tax_type": "string",       // e.g., VAT
-	"jurisdiction": "string",
-	"taxable_amount": 0.0,
-	"tax_rate": 0.19,
-	"tax_amount": 0.0,
-	"notes": "string"
+  "taskId": "string",
+  "businessId": "string",
+  "periodStart": "2024-01-01T00:00:00Z",
+  "periodEnd": "2024-01-31T23:59:59Z",
+  "status": "completed",
+  "totalRevenue": 12500.00,
+  "totalExpenses": 5000.00,
+  "grossProfit": 7500.00,
+  "netProfit": 6750.00,
+  "accountsReceivable": 2500.00,
+  "accountsPayable": 1000.00,
+  "cashPosition": 8500.00,
+  "taxCalculations": [
+    {
+      "taxType": "VAT",
+      "jurisdiction": "Tunisia",
+      "taxableAmount": 12500.00,
+      "taxRate": 0.19,
+      "taxAmount": 2375.00,
+      "notes": ""
+    }
+  ],
+  "aiInsights": "Revenue up 15% vs last month.",
+  "recommendations": ["Follow up on 3 overdue invoices"],
+  "anomaliesDetected": [],
+  "reports": [],
+  "journalEntries": [
+    {
+      "date": "2024-01-15T00:00:00Z",
+      "account": "Accounts Receivable",
+      "debit": 12500.00,
+      "credit": 0.00,
+      "description": "Invoice INV-2024-001",
+      "invoiceId": "INV-2024-001",
+      "metadata": {}
+    }
+  ],
+  "totalJournalEntries": 42
 }
 ```
 
-4) FinancialSummary
+4) TaxSummary (API response / persisted document mapping)
+
+The tenant DB stores the persisted tax summary in snake_case under `tax_summaries`. The API responses convert keys to camelCase. Example API response for both GET and POST (calculate) is:
 
 ```json
 {
-	"total_revenue": 0.0,
-	"total_expenses": 0.0,
-	"gross_profit": 0.0,
-	"net_profit": 0.0,
-	"accounts_receivable": 0.0,
-	"accounts_payable": 0.0,
-	"cash_position": 0.0
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "businessName": "Acme Corp",
+  "year": 2024,
+  "currency": "TND",
+  "summary": {
+    "annualVatTotal": 28500.00,
+    "annualCorporateTax": 13500.00,
+    "annualWithholdingTax": 2250.00,
+    "totalTaxLiability": 44250.00
+  },
+  "vatBreakdown": {
+    "standardRate19Percent": 28500.00,
+    "reducedRate13Percent": 0.00,
+    "reducedRate7Percent": 0.00
+  },
+  "monthlyDetails": [ /* per-month breakdown objects */ ],
+  "taxCalendar": [ /* calendar entries with dueDate (ISO string) and description */ ],
+  "notes": ["VAT (TVA) is due by the 28th of the following month"],
+  "createdAt": "2024-02-01T09:05:00Z",
+  "lastUpdatedAt": "2024-02-01T09:05:00Z"
 }
 ```
 
-5) AccountingReport
+POST /api/accounting/business/{business_id}/taxes/calculate
+
+- Description: Calculate taxes for a given `year` and persist the result in the tenant DB. If a summary already exists the endpoint returns a message indicating the existing summary.
+- Parameters: `year` (query param, optional — defaults to current year)
+- Body: none
+
+Example request (no body, using query param):
+
+```bash
+curl -X POST "http://localhost:8000/api/accounting/business/60d5ecb8b6f3c72e7c8e4a5b/taxes/calculate?year=2024" \
+  -H "X-API-Key: your_api_key"
+```
+
+Example successful response (created/persisted):
 
 ```json
 {
-	"report_type": "P&L|Balance Sheet|Cash Flow|General Ledger",
-	"period_start": "ISO datetime",
-	"period_end": "ISO datetime",
-	"data": { },
-	"generated_at": "ISO datetime"
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "businessName": "Acme Corp",
+  "year": 2024,
+  "summary": {
+    "annualVatTotal": 28500.00,
+    "annualCorporateTax": 13500.00,
+    "annualWithholdingTax": 2250.00,
+    "totalTaxLiability": 44250.00
+  }
 }
 ```
 
-6) AccountingJobStatusResponse (API response fields)
+Example response when a summary already exists:
 
 ```json
 {
-	"task_id": "string",
-	"business_id": "string",
-	"period_start": "ISO datetime",
-	"period_end": "ISO datetime",
-	"status": "pending|processing|completed|failed|cancelled",
-	"progress_percent": 0,
-	"started_at": "ISO datetime|null",
-	"completed_at": "ISO datetime|null",
-	"error_message": "string|null",
-	"journal_entries_count": 0,
-	"reports_generated": 0,
-	"estimated_seconds": 120|null,
-	"estimated_completion": "ISO datetime|null",
-	"estimated_time_remaining": 60|null
+  "message": "Tax summary already exists",
+  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
+  "year": 2024
 }
 ```
 
 Notes:
+
 - Numeric monetary values are stored as Decimals in the DB models but API responses use floats for JSON compatibility.
 - All timestamps are UTC ISO 8601 strings.
 
