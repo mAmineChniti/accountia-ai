@@ -1,0 +1,60 @@
+# Render Blueprint for Accountia AI Accountant
+# This file configures the service on Render.com
+
+services:
+  - type: web
+    name: accountia-ai
+    runtime: docker
+    plan: standard  # or starter for free tier
+    region: frankfurt  # Choose closest to your users
+    healthCheckPath: /api/health/ready
+    envVars:
+      # Required: MongoDB Atlas connection string
+      - key: MONGO_URI
+        sync: false  # Set manually in Render dashboard for security
+
+      # Optional: Redis connection string
+      - key: REDIS_URL
+        sync: false  # Set manually if using Redis
+
+      # Required: API key for authentication
+      - key: API_KEY
+        generateValue: true  # Render will generate a random value
+
+      # Optional: Groq API for LLM fallback
+      - key: GROQ_API_KEY
+        sync: false
+
+      # Performance settings
+      - key: GUNICORN_WORKERS
+        value: "2"  # Adjust based on Render instance size (2 for safety)
+
+      - key: LOG_LEVEL
+        value: "info"
+
+      # Model settings
+      - key: DEVICE
+        value: "cpu"  # Render instances don't have GPU
+
+      - key: USE_FINE_TUNED
+        value: "false"
+
+      - key: BASE_MODEL
+        value: "Qwen/Qwen2.5-1.5B-Instruct"
+
+      # Mark as Render environment for special handling
+      - key: RENDER
+        value: "true"
+
+      # HuggingFace cache location (baked into Docker image)
+      - key: HF_HOME
+        value: "/app/.cache/huggingface"
+
+      - key: HF_HUB_OFFLINE
+        value: "1"  # Use pre-downloaded model
+
+    # Auto-deploy on git push
+    autoDeploy: true
+
+    # Scaling configuration
+    numInstances: 1  # Start with 1, scale horizontally as needed
