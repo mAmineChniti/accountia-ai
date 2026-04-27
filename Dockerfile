@@ -49,10 +49,7 @@ COPY requirements.txt .
 
 # Install Python dependencies
 # Use --no-deps for specific packages if needed, but install full requirements
-RUN pip install --no-cache-dir -r requirements.txt && \
-    # Clean up pip cache and temp files
-    pip cache purge && \
-    rm -rf /root/.cache/pip
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ----------------------------------------------------------------------------
 # Stage 3: Model download (critical for Render cold starts)
