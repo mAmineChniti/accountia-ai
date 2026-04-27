@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "accountia-ai"
 version = "1.0.0"
 description = "AI-powered accounting service for Tunisian businesses"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
