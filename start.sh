@@ -51,7 +51,8 @@ fi
 # Memory optimization for Render's constrained environments
 echo "[STARTUP] Setting memory optimizations..."
 export MALLOC_ARENA_MAX=2
-export PYTHONOPTIMIZE=2
+# Use optimize level 1 - level 2 strips docstrings needed by transformers
+export PYTHONOPTIMIZE=1
 
 # Gunicorn worker calculation (can be overridden via GUNICORN_WORKERS)
 if [ -n "$GUNICORN_WORKERS" ]; then
