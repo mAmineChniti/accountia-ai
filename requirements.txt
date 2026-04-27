@@ -130,3 +130,4 @@ wcwidth==0.6.0
 websockets==16.0
 xxhash==3.6.0
 yarl==1.23.0
+gunicorn==23.0.0

@@ -1,10 +1,11 @@
 """MongoDB connection manager for multi-tenant accounting."""
 
-from typing import Optional
-
 import asyncio
+from decimal import Decimal as PyDecimal
+
 import structlog
 from beanie import init_beanie
+from bson import Decimal128, ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.config import get_settings
@@ -12,12 +13,9 @@ from app.config import get_settings
 logger = structlog.get_logger()
 settings = get_settings()
 
-from bson import Decimal128, ObjectId
-from decimal import Decimal as PyDecimal
-
 # Global client instance
-_client: Optional[AsyncIOMotorClient] = None
-_platform_db: Optional[AsyncIOMotorDatabase] = None
+_client: AsyncIOMotorClient | None = None
+_platform_db: AsyncIOMotorDatabase | None = None
 
 
 async def init_mongodb() -> None:
@@ -31,7 +29,7 @@ async def init_mongodb() -> None:
 
     max_attempts = 5
     attempt = 0
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
 
     while attempt < max_attempts:
         attempt += 1
@@ -51,7 +49,7 @@ async def init_mongodb() -> None:
             _platform_db = _client[platform_db_name]
 
             # Initialize Beanie document models
-            from app.db.schemas import AccountingTask, AccountingPeriod
+            from app.db.schemas import AccountingPeriod, AccountingTask
 
             await init_beanie(
                 database=_platform_db,
@@ -69,7 +67,7 @@ async def init_mongodb() -> None:
                 error=str(e),
             )
             # exponential backoff before retrying
-            await asyncio.sleep(min(2 ** attempt, 30))
+            await asyncio.sleep(min(2**attempt, 30))
 
     logger.error(
         "mongodb_connection_failed_final",
