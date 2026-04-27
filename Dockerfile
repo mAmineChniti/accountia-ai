@@ -58,19 +58,35 @@ FROM deps AS model-downloader
 
 WORKDIR /app
 
-# Install huggingface_hub CLI for model download
-RUN pip install --no-cache-dir huggingface-hub[cli]
+# Install huggingface_hub for model download
+RUN pip install --no-cache-dir huggingface-hub
 
-# Download model at build time to avoid runtime download on Render
-# This is a multi-threaded operation, so model files are baked into the image
+# Download model at build time using Python script for better error handling
 # The Qwen 1.5B model is ~3GB, which significantly reduces cold start time
-RUN mkdir -p /app/.cache/huggingface && \
-    huggingface-cli download \
-    --local-dir /app/.cache/huggingface/models--Qwen--Qwen2.5-1.5B-Instruct \
-    --local-dir-use-symlinks False \
-    Qwen/Qwen2.5-1.5B-Instruct && \
-    # Ensure proper permissions
-    chmod -R 755 /app/.cache/huggingface
+RUN python3 -c "
+import os
+import sys
+from huggingface_hub import snapshot_download
+
+model_id = 'Qwen/Qwen2.5-1.5B-Instruct'
+cache_dir = '/app/.cache/huggingface'
+os.makedirs(cache_dir, exist_ok=True)
+
+print(f'Downloading {model_id}...', flush=True)
+try:
+    # Use standard HF cache format - transformers will find it automatically
+    snapshot_download(
+        repo_id=model_id,
+        cache_dir=cache_dir,
+        resume_download=True,
+        local_files_only=False,
+    )
+    print(f'Model cached at: {cache_dir}', flush=True)
+    print('Model download complete!', flush=True)
+except Exception as e:
+    print(f'Error downloading model: {e}', file=sys.stderr)
+    sys.exit(1)
+" && chmod -R 755 /app/.cache/huggingface
 
 # ----------------------------------------------------------------------------
 # Stage 4: Final production image
