@@ -21,8 +21,8 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HUB_DISABLE_TELEMETRY=1 \
     # Reduce memory fragmentation
     MALLOC_ARENA_MAX=2 \
-    # Python optimizations
-    PYTHONOPTIMIZE=2
+    # Python optimizations (level 1 only, level 2 strips docstrings needed by transformers)
+    PYTHONOPTIMIZE=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
