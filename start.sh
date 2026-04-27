@@ -31,17 +31,21 @@ echo "  - REDIS_URL: ${REDIS_URL:-not configured}"
 
 # Set HuggingFace cache to use the pre-downloaded model
 echo "[STARTUP] Setting up model cache..."
+# Set HuggingFace cache location
 export HF_HOME="/app/.cache/huggingface"
 export TRANSFORMERS_CACHE="/app/.cache/huggingface"
-export HF_HUB_OFFLINE=1  # Don't try to re-download if model exists
 
-# Verify model cache exists
-if [ -d "/app/.cache/huggingface/models--Qwen--Qwen2.5-1.5B-Instruct" ]; then
+# Verify model cache exists (standard HF cache format)
+# The cache is stored in subdirectories like models--Qwen--Qwen2.5-1.5B-Instruct
+if [ -d "/app/.cache/huggingface/hub" ] && [ -n "$(find /app/.cache/huggingface/hub -name 'models--Qwen*' -type d 2>/dev/null | head -1)" ]; then
     echo "[STARTUP] Model cache found (build-time download successful)"
-    ls -la /app/.cache/huggingface/models--Qwen--Qwen2.5-1.5B-Instruct/ | head -20
+    echo "[STARTUP] Cached models:"
+    ls -la /app/.cache/huggingface/hub/ | grep models-- | head -5
+    # Enable offline mode to prevent re-download
+    export HF_HUB_OFFLINE=1
 else
-    echo "[WARN] Model cache not found - will attempt download at runtime"
-    unset HF_HUB_OFFLINE
+    echo "[WARN] Model cache not found - will attempt download at runtime (slow!)"
+    echo "[WARN] For faster deploys, ensure model is baked into Docker image"
 fi
 
 # Memory optimization for Render's constrained environments
