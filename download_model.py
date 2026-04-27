@@ -7,11 +7,14 @@ import sys
 from huggingface_hub import snapshot_download
 
 model_id = "Qwen/Qwen2.5-1.5B-Instruct"
-cache_dir = "/app/.cache/huggingface"
+# Use standard HF cache directory structure
+hf_home = "/app/.cache/huggingface"
+cache_dir = os.path.join(hf_home, "hub")
 
 os.makedirs(cache_dir, exist_ok=True)
+os.environ["HF_HOME"] = hf_home
 
-print(f"Downloading {model_id}...", flush=True)
+print(f"Downloading {model_id} to {cache_dir}...", flush=True)
 try:
     snapshot_download(
         repo_id=model_id,
@@ -19,7 +22,10 @@ try:
         resume_download=True,
         local_files_only=False,
     )
-    print(f"Model cached at: {cache_dir}", flush=True)
+    # List what was downloaded
+    if os.path.exists(cache_dir):
+        models = [d for d in os.listdir(cache_dir) if d.startswith("models--")]
+        print(f"Cached models: {models}", flush=True)
     print("Model download complete!", flush=True)
 except Exception as e:
     print(f"Error downloading model: {e}", file=sys.stderr)

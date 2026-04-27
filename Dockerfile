@@ -1,12 +1,12 @@
 # ============================================================================
 # Production Dockerfile for Accountia AI Accountant
-# Python 3.14, Render-optimized, with build-time model caching
+# Python 3.11, Render-optimized, with build-time model caching
 # ============================================================================
 
 # ----------------------------------------------------------------------------
 # Stage 1: Base image with system dependencies
 # ----------------------------------------------------------------------------
-FROM python:3.14-slim-bookworm AS base
+FROM python:3.11-slim-bookworm AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -73,7 +73,7 @@ FROM base AS production
 WORKDIR /app
 
 # Copy installed Python packages from deps stage
-COPY --from=deps /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
+COPY --from=deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
 # Copy downloaded model from model-downloader stage
