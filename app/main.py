@@ -11,6 +11,7 @@ from app.db.mongodb import close_mongodb, init_mongodb
 from app.db.redis import close_redis, init_redis
 from app.routers import accounting, health
 from app.services.model_manager import ModelManager
+from app.services.tiny_analyzer import TinyAccountingAnalyzer
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -42,25 +43,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("redis_init_failed", error=str(e), fallback="no_caching")
 
-    # Initialize model - EAGER (not background) for proper readiness
-    # In multi-worker setup, each worker loads its own model
-    logger.info("model_initialization_starting", worker_pid=pid)
-    model_initialized = await ModelManager.initialize()
+    # Skip heavy model loading for free tier - use tiny analyzer instead
+    logger.info("model_initialization_skipped", reason="using_tiny_analyzer")
 
-    if model_initialized:
-        logger.info(
-            "service_started_successfully",
-            worker_pid=pid,
-            model_ready=True,
-        )
-    else:
-        logger.warning(
-            "service_started_with_model_failure",
-            worker_pid=pid,
-            model_ready=False,
-            error=ModelManager.get_error(),
-            fallback="groq_api",
-        )
+    # Initialize tiny analyzer (optional, low RAM - 66M params vs 1.5B)
+    try:
+        await TinyAccountingAnalyzer.initialize()
+        logger.info("tiny_analyzer_ready", worker_pid=pid)
+    except Exception as e:
+        logger.warning("tiny_analyzer_failed", error=str(e), fallback="rule_based")
 
     yield
 

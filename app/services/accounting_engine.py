@@ -17,6 +17,7 @@ from app.db.schemas import (
 )
 from app.services.llm_service import get_llm_service
 from app.services.tax_service import TunisianTaxService
+from app.services.tiny_analyzer import TinyAccountingAnalyzer
 
 logger = structlog.get_logger()
 
@@ -618,62 +619,31 @@ class AccountingEngine:
         journal_entries: list[JournalEntry],
         summary: FinancialSummary,
     ) -> dict:
-        """Use LLM to generate insights and detect anomalies."""
+        """Generate insights using tiny analyzer (fits in 512MB RAM) or rule-based fallback."""
 
-        # Prepare summary for LLM
-        invoice_summary = {
-            "total_invoices": len(invoices),
-            "paid_count": sum(1 for i in invoices if i.get("status") == "PAID"),
-            "outstanding_count": sum(1 for i in invoices if i.get("status") in ["SENT", "OVERDUE"]),
+        # Convert summary to dict for analyzer
+        summary_dict = {
             "total_revenue": float(summary.total_revenue),
+            "total_expenses": float(summary.total_expenses),
+            "net_profit": float(summary.net_profit),
             "gross_profit": float(summary.gross_profit),
+            "accounts_receivable": float(summary.accounts_receivable),
+            "accounts_payable": float(summary.accounts_payable),
+            "tax_due": float(summary.tax_due),
+            "cash_position": float(summary.cash_position),
         }
-
-        prompt = f"""Analyze this business's accounting data for the period:
-
-Financial Summary:
-{invoice_summary}
-
-Journal Entries Summary:
-- Total entries: {len(journal_entries)}
-- Revenue recognized: {sum(float(e.credit) for e in journal_entries if e.account == "Revenue")}
-- COGS: {sum(float(e.debit) for e in journal_entries if e.account == "Cost of Goods Sold")}
-- Accounts Receivable: {float(summary.accounts_receivable)}
-- Cash Position: {float(summary.cash_position)}
-
-Provide:
-1. Key insights about the financial performance
-2. 3-5 actionable recommendations
-3. Any anomalies or red flags detected
-
-Respond in JSON format with keys:
-- insights (string)
-- recommendations (array of strings)
-- anomalies (array of objects with 'description' and 'severity').
-"""
-
-        schema = {
-            "insights": "string - 2-3 paragraph analysis",
-            "recommendations": ["string - actionable advice"],
-            "anomalies": [{"description": "string", "severity": "low|medium|high"}],
-        }
-
-        system_prompt = """You are an expert accountant analyzing business financials.
-Provide professional, accurate accounting analysis. Be concise but thorough."""
 
         try:
-            result = await self.llm.generate_structured(
-                prompt=prompt,
-                output_schema=schema,
-                system_prompt=system_prompt,
+            # Use tiny analyzer (DistilBERT, 66M params, ~150MB RAM)
+            result = await TinyAccountingAnalyzer.analyze(
+                invoices=invoices,
+                journal_entries=journal_entries,
+                summary=summary_dict,
             )
-            return {
-                "insights": result.get("insights", ""),
-                "recommendations": result.get("recommendations", []),
-                "anomalies": result.get("anomalies", []),
-            }
+            return result
         except Exception as e:
             logger.error("ai_analysis_failed", error=str(e))
+            # Fallback handled inside analyzer
             return {
                 "insights": "AI analysis unavailable. Please review financial summary manually.",
                 "recommendations": [],
