@@ -6,7 +6,7 @@ import sys
 
 from huggingface_hub import snapshot_download
 
-model_id = "Qwen/Qwen2.5-1.5B-Instruct"
+model_id = "Qwen/Qwen2.5-0.5B-Instruct"  # 0.5B for free tier (512MB RAM)
 # Use standard HF cache directory structure
 hf_home = "/app/.cache/huggingface"
 cache_dir = os.path.join(hf_home, "hub")
