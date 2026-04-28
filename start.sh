@@ -36,7 +36,7 @@ export HF_HOME="/app/.cache/huggingface"
 export TRANSFORMERS_CACHE="/app/.cache/huggingface"
 
 # Verify model cache exists (standard HF cache format)
-# The cache is stored in subdirectories like models--Qwen--Qwen2.5-1.5B-Instruct
+# The cache is stored in subdirectories like models--Qwen--Qwen2.5-0.5B-Instruct
 if [ -d "/app/.cache/huggingface/hub" ] && [ -n "$(find /app/.cache/huggingface/hub -name 'models--Qwen*' -type d 2>/dev/null | head -1)" ]; then
     echo "[STARTUP] Model cache found (build-time download successful)"
     echo "[STARTUP] Cached models:"
@@ -59,9 +59,9 @@ if [ -n "$GUNICORN_WORKERS" ]; then
     WORKERS="$GUNICORN_WORKERS"
 else
     # Auto-calculate based on Render instance
-    # Render instances typically have 1-4 cores
-    # Use 2 workers to balance throughput and memory (model is ~2-3GB per worker)
-    WORKERS=2
+    # Free tier (512MB): Use 1 worker only - 0.5B model + overhead fits in memory
+    # Paid tiers (2GB+): Can use 2 workers with larger models
+    WORKERS=1
 fi
 
 echo "[STARTUP] Starting Gunicorn with $WORKERS workers..."

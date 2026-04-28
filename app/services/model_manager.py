@@ -176,15 +176,19 @@ class ModelManager:
     @classmethod
     async def _load_model(cls, device: str) -> AutoModelForCausalLM:
         """Load the model with appropriate configuration for the device."""
-        # Configure quantization for CUDA
+        # Configure quantization for CUDA or CPU (4-bit for free tier)
         bnb_config = None
-        if device == "cuda":
+        if device == "cuda" or getattr(settings, "load_in_4bit", False):
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_compute_dtype=torch.float16 if device == "cuda" else torch.float32,
                 bnb_4bit_use_double_quant=True,
             )
+            logger.info("using_4bit_quantization", device=device)
+        elif getattr(settings, "load_in_8bit", False) and device == "cuda":
+            bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+            logger.info("using_8bit_quantization", device=device)
 
         # Model loading parameters
         device_map = "auto" if device == "cuda" else None

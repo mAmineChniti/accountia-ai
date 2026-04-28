@@ -18,15 +18,16 @@ class Settings(BaseSettings):
     # Redis (for caching and task queue) - from .env REDIS_URL
     redis_url: str = "redis://localhost:6379/0"
 
-    # Model Settings - Use base model (fine-tuning requires 8GB+ GPU)
-    # For RTX 2050 4GB: use base model or Groq API
-    base_model: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    # Model Settings - 0.5B model for free tier (512MB RAM)
+    # Qwen 0.5B fits in ~600MB RAM with 4-bit quantization
+    base_model: str = "Qwen/Qwen2.5-0.5B-Instruct"
     fine_tuned_model_path: str | None = "./models/accountant-lora"
     use_fine_tuned: bool = False  # Skip training for now - base model works
 
     # Device settings for training/inference
-    device: str = "auto"  # auto, cpu, cuda, mps
-    load_in_8bit: bool = True  # Use 8-bit quantization to save VRAM
+    device: str = "cpu"  # Force CPU for Render free tier (no GPU)
+    load_in_4bit: bool = True  # 4-bit for 512MB RAM limit
+    load_in_8bit: bool = False  # 8-bit uses too much memory for free tier
 
     # Groq (fallback API if local model fails)
     groq_api_key: str | None = None
