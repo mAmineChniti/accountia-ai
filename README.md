@@ -791,10 +791,10 @@ Scenarios covered:
 
 ## Model Details
 
-- **Base Model**: Qwen/Qwen2.5-1.5B-Instruct (works on 4GB GPU)
-- **Fine-tuning**: LoRA (Low-Rank Adaptation)
-- **Quantization**: 8-bit (with `load_in_8bit=true`)
-- **Fallback**: Groq API (llama-3.3-70b-versatile) when local model unavailable
+- **Built-in Analyzer**: Lightweight TensorFlow/Keras-based `TinyAccountingAnalyzer` (default).
+- **Fine-tuning**: Optional — only relevant when `BASE_MODEL` is set to an external model.
+- **Quantization**: N/A for the built-in analyzer. External models may support quantization when deployed.
+- **Fallback**: Groq API (llama-3.3-70b-versatile) when external LLM is not configured or unavailable
 
 ## Environment Variables
 
@@ -811,7 +811,7 @@ Additional configuration options (set via `.env` or environment):
 |----------|-------------|---------|
 | `API_KEY` | Service-to-service API key required in `X-API-Key` header for protected endpoints | None (recommended to set) |
 | `JWT_SECRET` | Optional secret for validating JWTs (the service accepts Bearer tokens but does not validate by default) | None |
-| `BASE_MODEL` | Base LLM identifier used for local inference | `Qwen/Qwen2.5-1.5B-Instruct` |
+| `BASE_MODEL` | Base LLM identifier used for local inference. Leave empty to use the built-in TensorFlow analyzer | |
 | `FINE_TUNED_MODEL_PATH` | Path to local fine-tuned model (if `USE_FINE_TUNED=true`) | `./models/accountant-lora` |
 | `TRAINING_OUTPUT_DIR` | Directory where fine-tuning output is written | `./models/accountant-lora` |
 

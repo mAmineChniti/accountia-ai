@@ -89,5 +89,5 @@ tmp/
 .cache/
 *.cache
 
-# HuggingFace cache (models downloaded automatically)
+# Previously supported HuggingFace cache location (no longer required)
 ~/.cache/huggingface/

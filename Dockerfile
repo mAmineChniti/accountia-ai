@@ -13,16 +13,14 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    # HF cache location - will be baked into the image
-    HF_HOME=/app/.cache/huggingface \
-    TRANSFORMERS_CACHE=/app/.cache/huggingface \
-    HF_DATASETS_CACHE=/app/.cache/huggingface/datasets \
-    # Disable telemetry
-    HF_HUB_DISABLE_TELEMETRY=1 \
     # Reduce memory fragmentation
     MALLOC_ARENA_MAX=2 \
-    # Python optimizations (level 1 only, level 2 strips docstrings needed by transformers)
+    # Python optimizations
     PYTHONOPTIMIZE=1
+
+# Reduce TensorFlow verbosity and limit OpenMP threads in container
+ENV TF_CPP_MIN_LOG_LEVEL=2 \
+    OMP_NUM_THREADS=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,6 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     libgomp1 \
+    # Linear algebra libs used by numpy/TensorFlow wheels
+    libopenblas-dev \
+    liblapack3 \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -49,24 +51,11 @@ COPY requirements.txt .
 
 # Install Python dependencies
 # Use --no-deps for specific packages if needed, but install full requirements
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # ----------------------------------------------------------------------------
-# Stage 3: Model download (critical for Render cold starts)
-# ----------------------------------------------------------------------------
-FROM deps AS model-downloader
-
-WORKDIR /app
-
-# Install huggingface_hub for model download
-RUN pip install --no-cache-dir huggingface-hub
-
-# Copy and run model download script
-COPY download_model.py /tmp/download_model.py
-RUN python3 /tmp/download_model.py && chmod -R 755 /app/.cache/huggingface && rm /tmp/download_model.py
-
-# ----------------------------------------------------------------------------
-# Stage 4: Final production image
+# Final production image
 # ----------------------------------------------------------------------------
 FROM base AS production
 
@@ -77,7 +66,6 @@ COPY --from=deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.
 COPY --from=deps /usr/local/bin /usr/local/bin
 
 # Copy downloaded model from model-downloader stage
-COPY --from=model-downloader /app/.cache/huggingface /app/.cache/huggingface
 
 # Copy application code
 COPY --chown=appuser:appgroup app/ ./app/

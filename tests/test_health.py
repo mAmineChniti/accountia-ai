@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -39,12 +39,12 @@ async def test_health_endpoint(client):
 async def test_health_ready_endpoint(client):
     """Test ready health endpoint - mocks both MongoDB and ModelManager as ready."""
     with (
-        patch("app.routers.health.ModelManager") as mock_model,
+        patch("app.routers.health.TinyAccountingAnalyzer") as mock_analyzer,
         patch("app.routers.health.get_platform_db") as mock_db,
     ):
-        # Mock ModelManager
-        mock_model.is_ready.return_value = True
-        mock_model.get_model_info.return_value = {"ready": True, "model": "test"}
+        # Mock tiny analyzer
+        mock_analyzer.is_ready.return_value = True
+        mock_analyzer.get_model_info.return_value = {"ready": True, "name": "tiny_tensorflow_analyzer"}
 
         # Mock MongoDB
         mock_db_instance = mock_db.return_value

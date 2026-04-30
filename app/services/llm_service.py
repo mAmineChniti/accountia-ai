@@ -7,7 +7,6 @@ import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
-from app.services.model_manager import ModelManager
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -36,25 +35,11 @@ class LLMService:
         temperature: float = 0.1,
     ) -> str:
         """Generate text using local model or Groq fallback."""
-
-        # Try local model first
-        if ModelManager.is_ready():
-            try:
-                logger.debug("using_local_model")
-                return await ModelManager.generate(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    max_new_tokens=max_tokens,
-                    temperature=temperature,
-                )
-            except Exception as e:
-                logger.warning("local_model_failed", error=str(e), fallback="groq")
-
-        # Fallback to Groq
+        # Local model support removed in this simplified build. Use Groq if configured.
         if self.groq_client:
             return await self._call_groq(prompt, system_prompt, max_tokens, temperature)
 
-        raise RuntimeError("No LLM available (local model not ready, Groq not configured)")
+        raise RuntimeError("No LLM available (local model removed, Groq not configured)")
 
     @retry(
         stop=stop_after_attempt(3),
@@ -96,23 +81,11 @@ class LLMService:
         system_prompt: str | None = None,
     ) -> dict:
         """Generate structured JSON output."""
-
-        # Try local model first
-        if ModelManager.is_ready():
-            try:
-                return await ModelManager.generate_structured(
-                    prompt=prompt,
-                    output_schema=output_schema,
-                    system_prompt=system_prompt,
-                )
-            except Exception as e:
-                logger.warning("local_structured_failed", error=str(e))
-
-        # Groq fallback with JSON mode
+        # Local model support removed; use Groq for structured generation when available
         if self.groq_client:
             return await self._call_groq_structured(prompt, output_schema, system_prompt)
 
-        raise RuntimeError("No LLM available for structured generation")
+        raise RuntimeError("No LLM available for structured generation (local model removed)")
 
     @retry(
         stop=stop_after_attempt(3),

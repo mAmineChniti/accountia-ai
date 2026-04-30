@@ -369,7 +369,7 @@ async def create_accounting_job(
     logger.debug("[JOB CREATE] Checking for existing task")
     existing = await tenant_db["accounting_tasks"].find_one({"task_id": task_id})
 
-    if existing and existing.get("status") == AccountingTaskStatus.COMPLETED:
+    if existing and existing.get("status") == AccountingTaskStatus.COMPLETED.value:
         logger.info("[JOB CREATE] Task already completed", task_id=task_id)
         return CreateAccountingJobResponse(
             task_id=task_id,
@@ -381,7 +381,7 @@ async def create_accounting_job(
             estimated_completion=existing.get("estimated_completion"),
         ).model_dump(by_alias=True)
 
-    if existing and existing.get("status") == AccountingTaskStatus.PROCESSING:
+    if existing and existing.get("status") == AccountingTaskStatus.PROCESSING.value:
         logger.info("[JOB CREATE] Task already processing", task_id=task_id)
         return CreateAccountingJobResponse(
             task_id=task_id,
@@ -621,7 +621,7 @@ async def get_job_results(
     if not task_data:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if task_data["status"] != AccountingTaskStatus.COMPLETED:
+    if task_data["status"] != AccountingTaskStatus.COMPLETED.value:
         raise HTTPException(
             status_code=400,
             detail=f"Task not completed. Current status: {task_data['status']}",
@@ -695,7 +695,7 @@ async def cancel_accounting_job(
     current_status = task_data.get("status")
 
     # Can only cancel pending or processing jobs
-    if current_status not in [AccountingTaskStatus.PENDING, AccountingTaskStatus.PROCESSING]:
+    if current_status not in [AccountingTaskStatus.PENDING.value, AccountingTaskStatus.PROCESSING.value]:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -707,7 +707,7 @@ async def cancel_accounting_job(
     try:
         platform_db = get_platform_db()
         platform_task = await platform_db["accounting_tasks"].find_one({"task_id": task_id})
-        if platform_task and platform_task.get("status") == AccountingTaskStatus.COMPLETED:
+        if platform_task and platform_task.get("status") == AccountingTaskStatus.COMPLETED.value:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot cancel job; platform record already completed for task {task_id}",
@@ -721,7 +721,7 @@ async def cancel_accounting_job(
     # Update status to cancelled in both tenant and platform DBs (best-effort)
     cancel_payload = {
         "$set": {
-            "status": AccountingTaskStatus.CANCELLED,
+            "status": AccountingTaskStatus.CANCELLED.value,
             "completed_at": datetime.utcnow(),
             "error_message": "Job cancelled by user",
         }
