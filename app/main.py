@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
 
 from app.config import get_settings
 from app.core.rate_limiter import RateLimiter
@@ -103,6 +106,85 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log incoming requests and outgoing responses when enabled.
+
+    - Redacts sensitive headers (`authorization`, `x-api-key`, `cookie`).
+    - Truncates bodies to `request_log_max_body_chars` to avoid huge logs.
+    - Only active when `settings.enable_request_logging` is True.
+    """
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        settings_local = get_settings()
+        logger_local = structlog.get_logger()
+
+        if not settings_local.enable_request_logging:
+            return await call_next(request)
+
+        # Read and decode request body (may be empty)
+        try:
+            body_bytes = await request.body()
+        except Exception:
+            body_bytes = b""
+
+        try:
+            body_text = body_bytes.decode(errors="replace")
+        except Exception:
+            body_text = "<binary>"
+
+        # Redact sensitive headers
+        headers = {k.lower(): v for k, v in request.headers.items()}
+        for h in ("authorization", "x-api-key", "cookie", "set-cookie"):
+            if h in headers:
+                headers[h] = "***REDACTED***"
+
+        max_chars = settings_local.request_log_max_body_chars
+        logger_local.info(
+            "http.request",
+            method=request.method,
+            url=str(request.url),
+            headers=headers,
+            body=(body_text[:max_chars] + "..." if len(body_text) > max_chars else body_text),
+        )
+
+        # Call next and capture response body
+        response = await call_next(request)
+
+        # Consume response body iterator to capture content
+        resp_body = b""
+        try:
+            async for chunk in response.body_iterator:
+                resp_body += chunk
+        except Exception:
+            # If body iterator fails, fallback to empty
+            resp_body = b""
+
+        try:
+            resp_text = resp_body.decode(errors="replace")
+        except Exception:
+            resp_text = "<binary>"
+
+        # Redact response headers if any sensitive present
+        resp_headers = {k.lower(): v for k, v in response.headers.items()}
+        for h in ("set-cookie",):
+            if h in resp_headers:
+                resp_headers[h] = "***REDACTED***"
+
+        logger_local.info(
+            "http.response",
+            status_code=response.status_code,
+            headers=resp_headers,
+            body=(resp_text[:max_chars] + "..." if len(resp_text) > max_chars else resp_text),
+        )
+
+        # Recreate response since body_iterator was consumed
+        return StarletteResponse(content=resp_body, status_code=response.status_code, headers=dict(response.headers), media_type=response.media_type)
+
+
+# Add request/response logging middleware (enabled via settings)
+app.add_middleware(RequestResponseLoggingMiddleware)
 
 # Rate Limiting (Redis-backed, with fallback)
 app.add_middleware(

@@ -6,7 +6,7 @@ A fine-tuned LLM-powered accounting service for the Accountia invoice platform. 
 
 This service is optimized for Render deployment with:
 
-- **Build-time model caching** - Qwen 1.5B model baked into Docker image for fast cold starts
+- **Built-in TensorFlow analyzer** - a lightweight in-repo TensorFlow/Keras analyzer is used by default; optional build-time caching of external models is possible but not required
 - **Multi-worker Gunicorn** - Uvicorn workers with per-process model isolation
 - **Redis-backed caching** - LLM response caching and request deduplication
 - **Rate limiting** - API key-based rate limiting to prevent abuse
@@ -29,7 +29,7 @@ git push origin main
 - **AI Insights**: LLM-powered analysis and recommendations
 - **Anomaly Detection**: Automated red flag identification
 - **Multi-tenancy**: Uses businessId to access tenant databases (like Accountia API)
-- **AI Model**: Uses Qwen2.5-1.5B (works on 4GB GPU) - training optional for later
+- **AI Model**: Uses the built-in `TinyAccountingAnalyzer` (TensorFlow/Keras) by default. External HF/Torch models are optional and must be configured via `BASE_MODEL` in the environment.
 - **Security**: API key auth - only Accountia API can access (blocks direct frontend requests)
 
 ## Architecture
@@ -38,7 +38,7 @@ git push origin main
 ┌─────────────────────────────────────────────────────────────┐
 │                      Accountia Service                       │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  FastAPI + Qwen2.5-1.5B-Instruct (or Groq API)    │   │
+│  │  FastAPI + built-in TensorFlow/Keras analyzer (or Groq API) │   │
 │  │  • Accounting Engine (accrual basis)              │   │
 │  │  • Journal Entry Generator                        │   │
 │  │  • Tunisian Tax Calculator (VAT, IS, Withholding) │   │
@@ -99,27 +99,33 @@ Quick health check - returns immediately.
 #### Readiness Check
 `GET /api/health/ready`
 
-Deep health check - verifies MongoDB and AI model are ready.
+Deep health check - verifies MongoDB and AI model are ready. The probe returns a `checks` object with `mongodb`, `redis` (optional), and `model` keys. When ready the endpoint returns HTTP 200 with `model_info`; otherwise HTTP 503 is returned.
 
-**Response (Ready):**
+Response (Ready - HTTP 200):
+
 ```json
 {
-	"status": "ready",
-	"checks": {
-		"mongodb": true,
-		"model": true
-	}
+  "status": "ready",
+  "checks": { "mongodb": true, "redis": true, "model": true },
+  "worker_pid": 12345,
+  "model_info": {
+    "name": "tiny_tensorflow_analyzer",
+    "ready": true,
+    "using_tensorflow": true,
+    "model_path": false
+  },
+  "timestamp": "2026-04-30T12:34:56+00:00"
 }
 ```
 
-**Response (Not Ready):**
+Response (Not Ready - HTTP 503):
+
 ```json
 {
-	"status": "not_ready",
-	"checks": {
-		"mongodb": false,
-		"model": true
-	}
+  "status": "not_ready",
+  "checks": { "mongodb": false, "redis": false, "model": false },
+  "worker_pid": 12345,
+  "timestamp": "2026-04-30T12:34:56+00:00"
 }
 ```
 
