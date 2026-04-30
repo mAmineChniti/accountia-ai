@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     omp_num_threads: int = 1
     mkl_num_threads: int = 1
     tokenizers_parallelism: bool = False
+    # Request/response logging (debugging)
+    enable_request_logging: bool = False
+    request_log_max_body_chars: int = 2000
 
     # Security
     jwt_secret: str | None = None
