@@ -9,7 +9,7 @@ from fastapi import APIRouter, Response, status
 from app.config import get_settings
 from app.db.mongodb import get_platform_db
 from app.db.redis import get_redis
-from app.services.model_manager import ModelManager
+from app.services.tiny_analyzer import TinyAccountingAnalyzer
 
 logger = structlog.get_logger()
 
@@ -68,10 +68,13 @@ async def readiness_check(response: Response):
         logger.debug("redis_ping_failed", worker_pid=pid, error=str(e))
         # Redis is not critical for readiness
 
-    # Check Model - this is critical
-    checks["model"] = ModelManager.is_ready()
-    if not checks["model"]:
-        logger.debug("model_not_ready", worker_pid=pid, model_info=ModelManager.get_model_info())
+    # Check Model - use lightweight TinyAccountingAnalyzer readiness
+    try:
+        checks["model"] = TinyAccountingAnalyzer.is_ready()
+        if not checks["model"]:
+            logger.debug("model_not_ready", worker_pid=pid, model_info=TinyAccountingAnalyzer.get_model_info())
+    except Exception as e:
+        logger.debug("model_check_failed", worker_pid=pid, error=str(e))
 
     # Determine overall status
     # Model and MongoDB are required, Redis is optional
@@ -82,7 +85,7 @@ async def readiness_check(response: Response):
             "status": "ready",
             "checks": checks,
             "worker_pid": pid,
-            "model_info": ModelManager.get_model_info(),
+            "model_info": TinyAccountingAnalyzer.get_model_info(),
             "timestamp": datetime.now(UTC).isoformat(),
         }
     else:
@@ -100,8 +103,8 @@ async def detailed_status():
     """Detailed status endpoint for diagnostics and monitoring."""
     pid = os.getpid()
 
-    # Get model info
-    model_info = ModelManager.get_model_info()
+    # Get model info from tiny analyzer
+    model_info = TinyAccountingAnalyzer.get_model_info()
 
     # Get database stats
     db_stats = {}

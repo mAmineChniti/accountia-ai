@@ -1,7 +1,6 @@
 """Tests for configuration."""
 
-import pytest
-from app.config import get_settings, Settings
+from app.config import Settings, get_settings
 
 
 def test_settings_singleton():

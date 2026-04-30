@@ -10,7 +10,6 @@ from app.core.rate_limiter import RateLimiter
 from app.db.mongodb import close_mongodb, init_mongodb
 from app.db.redis import close_redis, init_redis
 from app.routers import accounting, health
-from app.services.model_manager import ModelManager
 from app.services.tiny_analyzer import TinyAccountingAnalyzer
 
 logger = structlog.get_logger()
@@ -59,10 +58,7 @@ async def lifespan(app: FastAPI):
     logger.info("shutting_down_service", worker_pid=pid)
 
     # Clean up model resources
-    try:
-        await ModelManager.shutdown()
-    except Exception as e:
-        logger.error("model_shutdown_error", error=str(e))
+    # No heavy ModelManager in this build; tiny analyzer has no shutdown hook
 
     # Close database connections
     try:

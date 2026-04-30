@@ -11,6 +11,7 @@ from app.db.mongodb import get_tenant_db
 from app.db.schemas import (
     AccountingReport,
     AccountingTask,
+    AccountingTaskStatus,
     FinancialSummary,
     JournalEntry,
     TaxCalculation,
@@ -112,7 +113,7 @@ class AccountingEngine:
         task.anomalies_detected = ai_result["anomalies"]
 
         # 8. Mark as completed
-        task.status = "completed"
+        task.status = AccountingTaskStatus.COMPLETED
         task.progress_percent = 100
         task.completed_at = datetime.utcnow()
 
@@ -131,9 +132,18 @@ class AccountingEngine:
         end: datetime,
     ) -> list[dict]:
         """Fetch invoices for the period."""
+        # Build a flexible matcher that accepts either ObjectId or string form
+        issuer_ids = [self.business_id]
+        try:
+            if ObjectId.is_valid(self.business_id):
+                issuer_ids.insert(0, ObjectId(self.business_id))
+        except Exception:
+            # If validation fails, continue with string id only
+            pass
+
         cursor = self.tenant_db["invoices"].find(
             {
-                "issuerBusinessId": {"$in": [ObjectId(self.business_id), self.business_id]},
+                "issuerBusinessId": {"$in": issuer_ids},
                 "issuedDate": {"$gte": start, "$lte": end},
             }
         )
@@ -146,9 +156,16 @@ class AccountingEngine:
 
     async def _fetch_products(self) -> list[dict]:
         """Fetch products for the business."""
+        product_owner_ids = [self.business_id]
+        try:
+            if ObjectId.is_valid(self.business_id):
+                product_owner_ids.insert(0, ObjectId(self.business_id))
+        except Exception:
+            pass
+
         cursor = self.tenant_db["products"].find(
             {
-                "businessId": {"$in": [ObjectId(self.business_id), self.business_id]},
+                "businessId": {"$in": product_owner_ids},
             }
         )
         raw = await cursor.to_list(length=None)
@@ -629,7 +646,8 @@ class AccountingEngine:
             "gross_profit": float(summary.gross_profit),
             "accounts_receivable": float(summary.accounts_receivable),
             "accounts_payable": float(summary.accounts_payable),
-            "tax_due": float(summary.tax_due),
+            # tax_due may not be present on FinancialSummary; guard access
+            "tax_due": float(getattr(summary, "tax_due", 0)),
             "cash_position": float(summary.cash_position),
         }
 

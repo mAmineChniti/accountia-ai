@@ -84,7 +84,7 @@ docker run -p 8000:8000 \
 | `GUNICORN_WORKERS` | `2` | Number of worker processes (each loads a model) |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warning, error) |
 | `DEVICE` | `cpu` | Compute device (cpu/cuda - Render uses CPU) |
-| `BASE_MODEL` | `Qwen/Qwen2.5-1.5B-Instruct` | HuggingFace model ID |
+| `BASE_MODEL` | (optional) | Base model id or local path. Leave empty to use built-in TensorFlow analyzer or provide an external model when optional ML deps are installed. |
 | `USE_FINE_TUNED` | `false` | Whether to use fine-tuned LoRA adapter |
 
 ### Render-Specific
@@ -92,8 +92,7 @@ docker run -p 8000:8000 \
 | Variable | Value | Description |
 |----------|-------|-------------|
 | `RENDER` | `true` | Marks Render environment for special handling |
-| `HF_HOME` | `/app/.cache/huggingface` | Model cache location (in image) |
-| `HF_HUB_OFFLINE` | `1` | Use pre-downloaded model (faster startup) |
+| `HF_HOME` | `/app/.cache/huggingface` | (legacy) HuggingFace cache location — optional when using external HF models |
 
 ## Performance Tuning
 
@@ -125,12 +124,12 @@ Each worker:
 
 ### Cold Start Optimization
 
-The Dockerfile pre-downloads the model at **build time**, not runtime:
-
-1. Build stage downloads `Qwen/Qwen2.5-1.5B-Instruct` (~3GB)
-2. Model is baked into the Docker image
-3. At startup, model loads from local disk (fast)
-4. No runtime download = fast cold starts (~30-60s vs. 5-10min)
+The default setup uses the lightweight in-repo TensorFlow analyzer which
+does not require large external model downloads and starts quickly. If you
+opt to use an external large model via `BASE_MODEL`, consider pre-downloading
+the model during image build in CI to improve cold starts. Pre-baking is
+optional and only necessary for heavy models when you control the runtime
+environment and disk budget.
 
 ## Health Checks
 

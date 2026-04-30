@@ -18,16 +18,17 @@ class Settings(BaseSettings):
     # Redis (for caching and task queue) - from .env REDIS_URL
     redis_url: str = "redis://localhost:6379/0"
 
-    # Model Settings - 0.5B model for free tier (512MB RAM)
-    # Qwen 0.5B fits in ~600MB RAM with 4-bit quantization
-    base_model: str = "Qwen/Qwen2.5-0.5B-Instruct"
+    # Model Settings
+    # Leave `base_model` empty to use the built-in TensorFlow tiny analyzer.
+    # Set to a model id only if deploying with external HF/Torch-based models and deps installed.
+    base_model: str = ""
     fine_tuned_model_path: str | None = "./models/accountant-lora"
-    use_fine_tuned: bool = False  # Skip training for now - base model works
+    use_fine_tuned: bool = False
 
-    # Device settings for training/inference
-    device: str = "cpu"  # Force CPU for Render free tier (no GPU)
-    load_in_4bit: bool = True  # 4-bit for 512MB RAM limit
-    load_in_8bit: bool = False  # 8-bit uses too much memory for free tier
+    # Device settings for training/inference (only used when external model configured)
+    device: str = "cpu"
+    load_in_4bit: bool = False
+    load_in_8bit: bool = False
 
     # Groq (fallback API if local model fails)
     groq_api_key: str | None = None
@@ -44,6 +45,14 @@ class Settings(BaseSettings):
     inference_do_sample: bool = False
     inference_temperature: float = 0.0
     inference_top_p: float = 0.9
+
+    # Runtime tuning / deploy-time hints (optional)
+    enable_tiny_analyzer: bool = False
+    gunicorn_workers: int = 1
+    log_level: str = "info"
+    omp_num_threads: int = 1
+    mkl_num_threads: int = 1
+    tokenizers_parallelism: bool = False
 
     # Security
     jwt_secret: str | None = None

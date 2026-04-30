@@ -3,7 +3,6 @@ Gunicorn configuration for Accountia AI Accountant.
 Optimized for Render deployment with Uvicorn workers.
 """
 
-import multiprocessing
 import os
 
 # -----------------------------------------------------------------------------
@@ -53,7 +52,7 @@ loglevel = os.getenv("LOG_LEVEL", "info")
 
 # Access log format (Render expects stdout logging)
 accesslog = "-"  # stdout
-errorlog = "-"   # stderr
+errorlog = "-"  # stderr
 
 # Access log format
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
@@ -77,6 +76,7 @@ pidfile = None
 # -----------------------------------------------------------------------------
 # keyfile = None
 # certfile = None
+
 
 # -----------------------------------------------------------------------------
 # Worker Lifecycle Hooks
