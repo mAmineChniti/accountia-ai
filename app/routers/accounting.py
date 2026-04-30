@@ -76,8 +76,7 @@ class CreateAccountingJobResponse(BaseModel):
         json_schema_extra={"example": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131"},
     )
     status: str = Field(
-        ..., description="Current status: pending, processing, completed",
-        json_schema_extra={"example": "pending"}
+        ..., description="Current status: pending, processing, completed", json_schema_extra={"example": "pending"}
     )
     message: str = Field(..., description="Human-readable status message")
     estimated_seconds: int | None = Field(
