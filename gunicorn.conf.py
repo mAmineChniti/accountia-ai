@@ -93,7 +93,10 @@ def on_reload(server):
 
 def when_ready(server):
     """Called just after the server is started."""
-    print(f"[GUNICORN] Server ready, listening on {bind}")
+    # `bind` may be provided via command-line; get it from server.cfg if available,
+    # otherwise fall back to the PORT env var used by the start script.
+    bind_addr = getattr(server.cfg, "bind", None) or f"0.0.0.0:{os.getenv('PORT', '8000')}"
+    print(f"[GUNICORN] Server ready, listening on {bind_addr}")
 
 
 def worker_int(worker):
