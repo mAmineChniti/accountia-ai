@@ -9,18 +9,16 @@ import os
 # -----------------------------------------------------------------------------
 # Server Socket
 # -----------------------------------------------------------------------------
-# Render provides the PORT environment variable
-bind = f"0.0.0.0:{os.getenv('PORT', '8000')}"
+# Bind is set via --bind in start.sh (uses PORT env var)
+# bind = f"0.0.0.0:{os.getenv('PORT', '8000')}"
 backlog = 2048  # Number of pending connections allowed
 
 # -----------------------------------------------------------------------------
 # Worker Processes
 # -----------------------------------------------------------------------------
-# Auto-calculate workers based on CPU cores (Render instances typically have 1-4 cores)
-# Each worker loads its own model instance for isolation
-# Formula: (2 x $num_cores) + 1, capped at 4 for Render free tier memory limits
-cpu_count = multiprocessing.cpu_count()
-workers = min((2 * cpu_count) + 1, 4)
+# Workers: Use WEB_CONCURRENCY env var (set by Render), default to 1 for free tier
+# Free tier has 512MB RAM - can only fit 1 worker
+workers = int(os.getenv("WEB_CONCURRENCY", os.getenv("GUNICORN_WORKERS", "1")))
 
 # Use Uvicorn workers for async support
 worker_class = "uvicorn.workers.UvicornWorker"

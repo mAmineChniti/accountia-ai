@@ -34,21 +34,21 @@ class CreateAccountingJobRequest(BaseModel):
         alias="businessId",
         validation_alias="businessId",
         description="MongoDB ID of the business to process (business_id or businessId)",
-        example="60d5ecb8b6f3c72e7c8e4a5b",
+        json_schema_extra={"example": "60d5ecb8b6f3c72e7c8e4a5b"},
     )
     period_start: datetime = Field(
         ...,
         alias="periodStart",
         validation_alias="periodStart",
         description="Start of accounting period (ISO format)",
-        example="2024-01-01T00:00:00Z",
+        json_schema_extra={"example": "2024-01-01T00:00:00Z"},
     )
     period_end: datetime = Field(
         ...,
         alias="periodEnd",
         validation_alias="periodEnd",
         description="End of accounting period (ISO format)",
-        example="2024-01-31T23:59:59Z",
+        json_schema_extra={"example": "2024-01-31T23:59:59Z"},
     )
 
     model_config = {
@@ -73,9 +73,12 @@ class CreateAccountingJobResponse(BaseModel):
         ...,
         alias="taskId",
         description="Unique task ID for this accounting job",
-        example="60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
+        json_schema_extra={"example": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131"},
     )
-    status: str = Field(..., description="Current status: pending, processing, completed", example="pending")
+    status: str = Field(
+        ..., description="Current status: pending, processing, completed",
+        json_schema_extra={"example": "pending"}
+    )
     message: str = Field(..., description="Human-readable status message")
     estimated_seconds: int | None = Field(
         None, alias="estimatedSeconds", description="Estimated seconds until completion"

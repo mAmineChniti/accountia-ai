@@ -82,5 +82,4 @@ exec gunicorn \
     --error-logfile - \
     --log-level "${LOG_LEVEL:-info}" \
     --capture-output \
-    --enable-stdio-inheritance \
-    --preload  # Preload app for memory efficiency (disabled in gunicorn.conf.py for model isolation)
+    --enable-stdio-inheritance
