@@ -1,56 +1,81 @@
-"""Health check endpoints for Render and monitoring."""
+"""Single health endpoint providing liveness and readiness info."""
 
 import os
 from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, Response, status
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.db.mongodb import get_platform_db
 from app.db.redis import get_redis
+from app.models.common import ErrorResponse
 from app.services.tiny_analyzer import TinyAccountingAnalyzer
 
 logger = structlog.get_logger()
 
 router = APIRouter()
+
+
+class HealthResponse(BaseModel):
+    status: str = Field(..., description="ready or not_ready")
+    checks: dict = Field(..., description="Subsystem checks: mongodb, redis, model")
+    worker_pid: int = Field(..., alias="workerPid", description="PID of worker process")
+    model_info: dict = Field(..., alias="modelInfo", description="Model readiness info")
+    service: str = Field(...)
+    version: str = Field(...)
+    timestamp: str = Field(..., description="ISO timestamp")
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "status": "ready",
+                "checks": {"mongodb": True, "redis": True, "model": True},
+                "workerPid": 12345,
+                "modelInfo": {
+                    "name": "tiny_tensorflow_analyzer",
+                    "ready": True,
+                    "usingTensorflow": True,
+                    "modelPath": True,
+                },
+                "service": "accountia",
+                "version": "0.1.0",
+                "timestamp": "2024-05-01T12:00:00+00:00",
+            }
+        },
+    }
+
+
 settings = get_settings()
 
 
-@router.get("")
-async def health_check(response: Response):
-    """Basic liveness check - returns 200 if the service is running.
+@router.get(
+    "",
+    response_model=HealthResponse,
+    response_description="Service liveness and readiness",
+    summary="Liveness and readiness checks",
+    description=(
+        "Returns a combined liveness and readiness report including subsystem checks (MongoDB, Redis, model), "
+        "worker PID, service/version info and a timestamp. When critical subsystems (MongoDB + model) are not ready, "
+        "this endpoint returns HTTP 503."
+    ),
+    responses={
+        200: {"model": HealthResponse, "description": "Service is ready"},
+        503: {"model": ErrorResponse, "description": "Service not ready - critical dependencies failing"},
+    },
+)
+async def health(response: Response):
+    """Combined health endpoint.
 
-    This endpoint is used by Render's liveness probe.
-    Returns minimal data for quick response.
-    """
-    return {
-        "status": "healthy",
-        "service": settings.app_name,
-        "version": settings.version,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-
-@router.get("/ready")
-async def readiness_check(response: Response):
-    """Readiness probe - checks all dependencies are initialized.
-
-    Returns 200 only when:
-    - MongoDB connection is established
-    - Model is loaded and ready
-
-    This is used by Render to determine if the instance should receive traffic.
+    Returns both liveness and readiness checks in a single response.
     """
     pid = os.getpid()
 
-    checks = {
-        "mongodb": False,
-        "redis": False,
-        "model": False,
-    }
+    checks = {"mongodb": False, "redis": False, "model": False}
 
-    # Check MongoDB
+    # MongoDB
     try:
         db = get_platform_db()
         await db.command("ping")
@@ -58,7 +83,7 @@ async def readiness_check(response: Response):
     except Exception as e:
         logger.debug("mongodb_ping_failed", worker_pid=pid, error=str(e))
 
-    # Check Redis (non-critical, but nice to have)
+    # Redis (optional)
     try:
         redis = get_redis()
         if redis:
@@ -66,84 +91,28 @@ async def readiness_check(response: Response):
             checks["redis"] = True
     except Exception as e:
         logger.debug("redis_ping_failed", worker_pid=pid, error=str(e))
-        # Redis is not critical for readiness
 
-    # Check Model - use lightweight TinyAccountingAnalyzer readiness
+    # Model readiness via tiny analyzer
     try:
         checks["model"] = TinyAccountingAnalyzer.is_ready()
-        if not checks["model"]:
-            logger.debug("model_not_ready", worker_pid=pid, model_info=TinyAccountingAnalyzer.get_model_info())
     except Exception as e:
         logger.debug("model_check_failed", worker_pid=pid, error=str(e))
 
-    # Determine overall status
-    # Model and MongoDB are required, Redis is optional
-    critical_checks = checks["mongodb"] and checks["model"]
+    critical = checks["mongodb"] and checks["model"]
 
-    if critical_checks:
-        return {
-            "status": "ready",
-            "checks": checks,
-            "worker_pid": pid,
-            "model_info": TinyAccountingAnalyzer.get_model_info(),
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-    else:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return {
-            "status": "not_ready",
-            "checks": checks,
-            "worker_pid": pid,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-
-
-@router.get("/status")
-async def detailed_status():
-    """Detailed status endpoint for diagnostics and monitoring."""
-    pid = os.getpid()
-
-    # Get model info from tiny analyzer
-    model_info = TinyAccountingAnalyzer.get_model_info()
-
-    # Get database stats
-    db_stats = {}
-    try:
-        _ = get_platform_db()
-        db_stats["platform_db_connected"] = True
-        db_stats["platform_db_name"] = settings.get_platform_db_name()
-    except Exception as e:
-        db_stats["platform_db_connected"] = False
-        db_stats["error"] = str(e)
-
-    # Get Redis stats
-    redis_stats = {}
-    try:
-        redis = get_redis()
-        if redis:
-            redis_stats["connected"] = True
-            # Try to get memory info
-            info = await redis.info("memory")
-            redis_stats["used_memory_mb"] = round(info.get("used_memory", 0) / 1024 / 1024, 2)
-        else:
-            redis_stats["connected"] = False
-            redis_stats["reason"] = "not_configured"
-    except Exception as e:
-        redis_stats["connected"] = False
-        redis_stats["error"] = str(e)
-
-    return {
+    payload = {
+        "status": "ready" if critical else "not_ready",
+        "checks": checks,
+        "workerPid": pid,
+        "modelInfo": TinyAccountingAnalyzer.get_model_info(),
         "service": settings.app_name,
         "version": settings.version,
-        "worker_pid": pid,
-        "environment": {
-            "debug": settings.debug,
-            "device_setting": settings.device,
-            "base_model": settings.base_model,
-            "use_fine_tuned": settings.use_fine_tuned,
-        },
-        "model": model_info,
-        "database": db_stats,
-        "cache": redis_stats,
         "timestamp": datetime.now(UTC).isoformat(),
     }
+
+    if not critical:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    # Validate and return using the Pydantic model, emitting camelCase aliases
+    validated = HealthResponse.model_validate(payload)
+    return validated.model_dump(by_alias=True)

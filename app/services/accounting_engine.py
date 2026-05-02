@@ -1,11 +1,13 @@
 """Core accounting engine - processes invoices and generates journal entries."""
 
 import contextlib
+import json
 from datetime import datetime
 from decimal import Decimal
 
 import structlog
 from bson import ObjectId
+from dateutil import parser as date_parser
 
 from app.db.mongodb import get_tenant_db
 from app.db.schemas import (
@@ -47,7 +49,13 @@ class AccountingEngine:
 
         # 1. Fetch invoices for period
         invoices = await self._fetch_invoices(task.period_start, task.period_end)
-        logger.info("fetched_invoices", count=len(invoices))
+        logger.info("fetched_invoices", count=len(invoices), business_id=self.business_id)
+        if invoices:
+            statuses = {}
+            for inv in invoices:
+                s = inv.get("status", "UNKNOWN")
+                statuses[s] = statuses.get(s, 0) + 1
+            logger.info("invoice_status_breakdown", statuses=statuses)
 
         # 2. Fetch products for cost calculations
         products = await self._fetch_products()
@@ -141,13 +149,20 @@ class AccountingEngine:
             # If validation fails, continue with string id only
             pass
 
-        cursor = self.tenant_db["invoices"].find(
-            {
-                "issuerBusinessId": {"$in": issuer_ids},
-                "issuedDate": {"$gte": start, "$lte": end},
-            }
-        )
+        # Query for invoices - check both issuedDate and createdAt since field names vary
+        query = {
+            "issuerBusinessId": {"$in": issuer_ids},
+            "$or": [
+                {"issuedDate": {"$gte": start, "$lte": end}},
+                {"createdAt": {"$gte": start, "$lte": end}},
+            ],
+        }
+        logger.debug("invoice_fetch_query", query=query, database=self.database_name)
+        cursor = self.tenant_db["invoices"].find(query)
         raw = await cursor.to_list(length=None)
+        logger.debug(
+            "invoice_fetch_raw_results", count=len(raw), first_invoice_id=str(raw[0].get("_id")) if raw else None
+        )
 
         # Normalize invoice documents to a predictable shape so downstream
         # processing doesn't depend on varying field names or BSON types.
@@ -235,7 +250,91 @@ class AccountingEngine:
         product_cost_map: dict[str, float],
     ) -> list[JournalEntry]:
         """Generate journal entries from invoices."""
+        # First, try to generate journal entries using the Groq LLM (if available).
+        try:
+            if self.llm and hasattr(self.llm, "generate_structured"):
+                # Build a concise prompt: include up to 20 invoices to avoid huge payloads
+                sample_invoices = invoices[:20]
+                prompt = (
+                    "Generate accounting journal entries (JSON array) for the provided invoices. "
+                    "Return an array named 'entries' where each entry contains: date (ISO8601), account, debit, "
+                    "credit, description, invoice_id (optional). "
+                    "Use accrual accounting: for paid invoices, record cash and revenue; "
+                    "for unpaid, record AR and revenue. "
+                    "Include VAT as separate liability entries when applicable. "
+                    "Do not include any explanatory text — return JSON only.\n\n"
+                )
 
+                system_prompt = "You are an expert accountant and must return valid JSON matching the requested schema."
+                # Use a minimal output schema indicator — LLMService will embed this in the request
+                output_schema = {
+                    "entries": [
+                        {
+                            "date": "string",
+                            "account": "string",
+                            "debit": "number",
+                            "credit": "number",
+                            "description": "string",
+                            "invoice_id": "string|null",
+                        }
+                    ]
+                }
+
+                # Provide context as JSON string (safe fallback to str)
+                try:
+                    context = {"invoices": sample_invoices, "product_cost_map": product_cost_map}
+                    context_json = json.dumps(context, default=str)
+                except Exception:
+                    context_json = str({"invoices_count": len(sample_invoices)})
+
+                full_prompt = prompt + "Context: " + context_json
+
+                resp = await self.llm.generate_structured(full_prompt, output_schema, system_prompt=system_prompt)
+
+                # Normalize response — accept either {'entries': [...]} or a raw list
+                entries_data = resp.get("entries") if isinstance(resp, dict) and "entries" in resp else resp
+
+                if isinstance(entries_data, list) and entries_data:
+                    parsed = []
+                    for e in entries_data:
+                        try:
+                            # Parse date
+                            date_val = e.get("date") if isinstance(e, dict) else None
+                            if isinstance(date_val, str):
+                                try:
+                                    date_parsed = date_parser.parse(date_val)
+                                except Exception:
+                                    date_parsed = datetime.utcnow()
+                            else:
+                                date_parsed = datetime.utcnow()
+
+                            debit = Decimal(str(e.get("debit", 0)))
+                            credit = Decimal(str(e.get("credit", 0)))
+                            account = str(e.get("account", ""))
+                            description = str(e.get("description", ""))
+                            invoice_id = e.get("invoice_id") or e.get("invoiceId") or None
+
+                            parsed.append(
+                                JournalEntry(
+                                    date=date_parsed,
+                                    account=account,
+                                    debit=debit,
+                                    credit=credit,
+                                    description=description,
+                                    invoice_id=invoice_id,
+                                )
+                            )
+                        except Exception:
+                            # Skip malformed entry
+                            continue
+
+                    if parsed:
+                        return parsed
+        except Exception:
+            # If LLM generation fails, fall back to rule-based engine below
+            pass
+
+        # Fallback: rule-based journal generation (existing logic)
         entries = []
 
         for invoice in invoices:
@@ -361,7 +460,7 @@ class AccountingEngine:
                     )
                 )
 
-            elif status in ["ISSUED", "VIEWED", "OVERDUE", "DISPUTED"]:
+            elif status in ["ISSUED", "VIEWED", "OVERDUE", "DISPUTED", "UNPAID", "SENT"]:
                 # Revenue recognized on accrual basis
                 entries.append(
                     JournalEntry(
@@ -667,3 +766,5 @@ class AccountingEngine:
                 "recommendations": [],
                 "anomalies": [],
             }
+
+    pass

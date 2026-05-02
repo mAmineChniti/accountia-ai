@@ -1,1151 +1,423 @@
 # Accountia - AI Accountant Service
 
-A fine-tuned LLM-powered accounting service for the Accountia invoice platform. Replaces human accountants by automatically processing invoices, generating journal entries, calculating taxes, and producing financial reports.
-
-## Production Deployment
-
-This service is optimized for Render deployment with:
-
-- **Built-in TensorFlow analyzer** - a lightweight in-repo TensorFlow/Keras analyzer is used by default; optional build-time caching of external models is possible but not required
-- **Multi-worker Gunicorn** - Uvicorn workers with per-process model isolation
-- **Redis-backed caching** - LLM response caching and request deduplication
-- **Rate limiting** - API key-based rate limiting to prevent abuse
-- **Health checks** - Render-compatible `/api/health/ready` readiness probe
-
-**Quick Deploy to Render:**
-```bash
-git push origin main
-# In Render Dashboard: New + → Blueprint → Select this repo
-```
-
-**See [DEPLOY.md](DEPLOY.md) for detailed deployment guide.**
-
-## Features
-
-- **Automated Accounting**: Process date-range accounting periods (e.g., Jan 1-31, 2024)
-- **Journal Entry Generation**: Double-entry bookkeeping from invoice data (accrual basis)
-- **Tunisian Tax Calculations**: VAT (19%, 13%, 7%), Corporate Tax (IS), Withholding Taxes
-- **Financial Reports**: P&L, Balance Sheet, General Ledger
-- **AI Insights**: LLM-powered analysis and recommendations
-- **Anomaly Detection**: Automated red flag identification
-- **Multi-tenancy**: Uses businessId to access tenant databases (like Accountia API)
-- **AI Model**: Uses the built-in `TinyAccountingAnalyzer` (TensorFlow/Keras) by default. External HF/Torch models are optional and must be configured via `BASE_MODEL` in the environment.
-- **Security**: API key auth - only Accountia API can access (blocks direct frontend requests)
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Accountia Service                       │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  FastAPI + built-in TensorFlow/Keras analyzer (or Groq API) │   │
-│  │  • Accounting Engine (accrual basis)              │   │
-│  │  • Journal Entry Generator                        │   │
-│  │  • Tunisian Tax Calculator (VAT, IS, Withholding) │   │
-│  │  • Financial Report Generator                     │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                          │                                  │
-│                          ▼                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  MongoDB (reads from Accountia tenant DBs)          │   │
-│  │  Writes accounting results to accounting_tasks      │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-															│
-															│ HTTP API
-															▼
-┌─────────────────────────────────────────────────────────────┐
-│                 Accountia NestJS API                        │
-│     Businesses request accounting via this API               │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## API Documentation
-
-**Base URL:** `http://localhost:8000`  
-**Authentication:** `X-API-Key` header required for all `/api/accounting/*` routes
-
-### Root Endpoint
-
-`GET /`
-
-Service info and basic health check. No authentication required.
-
-**Response:**
-```json
-{
-	"service": "Accountia AI Accountant",
-	"version": "1.0.0",
-	"status": "operational",
-	"description": "AI-powered accounting for Tunisian businesses"
-}
-```
-
-### Health Endpoints
-
-#### Basic Health
-`GET /api/health`
-
-Quick health check - returns immediately.
-
-**Response:**
-```json
-{
-	"status": "healthy",
-	"service": "Accountia AI Accountant"
-}
-```
-
-#### Readiness Check
-`GET /api/health/ready`
-
-Deep health check - verifies MongoDB and AI model are ready. The probe returns a `checks` object with `mongodb`, `redis` (optional), and `model` keys. When ready the endpoint returns HTTP 200 with `model_info`; otherwise HTTP 503 is returned.
-
-Response (Ready - HTTP 200):
-
-```json
-{
-  "status": "ready",
-  "checks": { "mongodb": true, "redis": true, "model": true },
-  "worker_pid": 12345,
-  "model_info": {
-    "name": "tiny_tensorflow_analyzer",
-    "ready": true,
-    "using_tensorflow": true,
-    "model_path": false
-  },
-  "timestamp": "2026-04-30T12:34:56+00:00"
-}
-```
-
-Response (Not Ready - HTTP 503):
-
-```json
-{
-  "status": "not_ready",
-  "checks": { "mongodb": false, "redis": false, "model": false },
-  "worker_pid": 12345,
-  "timestamp": "2026-04-30T12:34:56+00:00"
-}
-```
-
-### 1. Create Accounting Job
-
-`POST /api/accounting/jobs`
-
-Creates a new accounting job for a business period. The AI Accountant will:
-1. Look up the business's database name from the platform DB
-2. Read all invoices from that period
-3. Generate journal entries and financial reports
-4. Store results in the business's tenant database
-
-**Request Body (use camelCase):**
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "periodStart": "2024-01-01T00:00:00Z",
-  "periodEnd": "2024-01-31T23:59:59Z"
-}
-```
-
-**Validation:** Period max 365 days, end must be after start.
-
-**Response (New Job):**
-```json
-{
-  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-  "status": "pending",
-  "message": "Accounting job created for period 2024-01-01 to 2024-01-31",
-  "estimatedSeconds": 59,
-  "estimatedCompletion": "2024-01-01T00:00:59Z"
-}
-```
-
-**Response (Already Processing):**
-```json
-{
-  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-  "status": "processing",
-  "message": "Accounting job already in progress."
-}
-```
-
-**Response (Already Completed):**
-```json
-{
-  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-  "status": "completed",
-  "message": "Accounting already completed. Use GET /jobs/{task_id} for results."
-}
-```
-
-**Error Responses:**
-- `400` - Invalid period (exceeds 365 days or end before start)
-- `404` - Business not found
-- `401/403` - Invalid or missing API key
-
-### 2. List Accounting Jobs
-
-`GET /api/accounting/jobs?businessId={businessId}&limit=10`
-
-List all accounting jobs for a business.
-
-**Query Parameters:**
-- `businessId` (required) - Business ID
-- `limit` (optional) - Max results (1-100, default 10)
-
-**Response:**
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "jobs": [
-    {
-      "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-      "periodStart": "2024-01-01T00:00:00",
-      "periodEnd": "2024-01-31T23:59:59",
-      "status": "completed",
-      "progressPercent": 100,
-      "startedAt": "2024-04-19T10:30:00",
-      "completedAt": "2024-04-19T10:31:15",
-      "journalEntriesCount": 42,
-      "reportsGenerated": 3
-    }
-  ]
-}
-```
-
-**Error Responses:**
-- `404` - Business not found
-- `401/403` - Invalid or missing API key
-
-### 3. Get Job Status
-
-`GET /api/accounting/jobs/{task_id}?businessId={businessId}`
-
-**Response:**
-```json
-{
-  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "periodStart": "2024-01-01T00:00:00",
-  "periodEnd": "2024-01-31T23:59:59",
-  "status": "completed",
-  "progressPercent": 100,
-  "startedAt": "2024-04-19T10:30:00",
-  "completedAt": "2024-04-19T10:31:15",
-  "journalEntriesCount": 42,
-  "reportsGenerated": 3
-}
-```
-
-**Status values:** `pending`, `processing`, `completed`, `failed`, `cancelled`
-
-**Error Responses:**
-- `404` - Task not found or business not found
-
-### 4. Get Job Results
-
-`GET /api/accounting/jobs/{task_id}/results?businessId={businessId}`
-
-**Response (Full Results):**
-```json
-{
-  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "status": "completed",
-
-  "totalRevenue": 12500.00,
-  "totalExpenses": 5000.00,
-  "grossProfit": 7500.00,
-  "netProfit": 6750.00,
-  "accountsReceivable": 2500.00,
-  "accountsPayable": 1000.00,
-  "cashPosition": 8500.00,
-
-  "taxCalculations": [
-    {
-      "taxType": "VAT",
-      "jurisdiction": "Tunisia",
-      "taxableAmount": 12500.00,
-      "taxRate": 0.19,
-      "taxAmount": 2375.00
-    }
-  ],
-
-  "aiInsights": "Revenue up 15% vs last month. Review A/R aging.",
-  "recommendations": ["Follow up on 3 overdue invoices"],
-  "anomaliesDetected": [
-    {
-      "id": "A-1001",
-      "type": "duplicate_invoice",
-      "severity": "medium",
-      "description": "Detected duplicate invoices INV-2024-007 and INV-2024-008 (same invoice number, different amounts).",
-      "detectedAt": "2024-01-20T09:12:34Z",
-      "affectedRecords": ["INV-2024-007", "INV-2024-008"],
-      "suggestedAction": "Review the invoices, confirm the correct record, mark the duplicate and adjust journal entries if needed."
-    },
-    {
-      "id": "A-1002",
-      "type": "negative_revenue",
-      "severity": "high",
-      "description": "Negative revenue detected for invoice INV-2024-015 indicating a possible refund or data entry error.",
-      "detectedAt": "2024-01-25T14:05:00Z",
-      "affectedRecords": ["INV-2024-015"],
-      "suggestedAction": "Verify the invoice lines and issue a credit note or correct the invoice amount."
-    }
-  ],
-
-  "journalEntries": [
-    {
-      "date": "2024-01-15T00:00:00",
-      "account": "Accounts Receivable",
-      "debit": 12500.00,
-      "credit": 0.00,
-      "description": "Invoice INV-2024-001",
-      "invoiceId": "INV-2024-001",
-      "metadata": {}
-    }
-  ],
-  "totalJournalEntries": 42
-}
-```
-
-**Error Responses:**
-- `400` - Job not completed yet (check status first)
-- `404` - Task not found or business not found
-
-### 5. Cancel Accounting Job
-
-`DELETE /api/accounting/jobs/{task_id}?businessId={businessId}`
-
-Cancel a pending or processing accounting job. Cannot cancel completed, failed, or already cancelled jobs.
-
-**Response (Success):**
-```json
-{
-  "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-  "status": "cancelled",
-  "message": "Accounting job cancelled successfully",
-  "previousStatus": "pending"
-}
-```
-
-**Error Responses:**
-- `400` - Cannot cancel job (already completed, failed, or cancelled)
-- `404` - Task not found or business not found
-- `401/403` - Invalid or missing API key
-
-### 6. Get Accounting History
-
-`GET /api/accounting/business/{business_id}/history?limit=10`
-
-Returns list of all accounting periods for a business.
-
-**Response:**
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "tasks": [
-    {
-      "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240201_20240229",
-      "periodStart": "2024-02-01T00:00:00",
-      "periodEnd": "2024-02-29T23:59:59",
-      "status": "completed",
-      "completedAt": "2024-03-01T10:15:30"
-    }
-  ]
-}
-```
-
-### 7. Get All Accountant Work
-
-`GET /api/accounting/business/{business_id}/work`
-
-Comprehensive work log with full details.
-
-**Query params:** `start_date`, `end_date`, `status`
-
-**Response:**
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "databaseName": "business_60d5ecb8b6f3c72e7c8e4a5b_db",
-  "summary": {
-    "totalAccountingPeriods": 12,
-    "completed": 12,
-    "pending": 0,
-    "processing": 0,
-    "failed": 0,
-    "totalJournalEntriesGenerated": 240,
-    "totalRevenueProcessed": 150000.00
-  },
-  "accountingPeriods": [
-    {
-      "taskId": "60d5ecb8b6f3c72e7c8e4a5b_20240101_20240131",
-      "periodStart": "2024-01-01T00:00:00",
-      "periodEnd": "2024-01-31T23:59:59",
-      "status": "completed",
-      "createdAt": "2024-02-01T09:00:00",
-      "startedAt": "2024-02-01T09:00:05",
-      "completedAt": "2024-02-01T09:02:30",
-      "journalEntriesCount": 20,
-      "taxCalculationsCount": 3,
-      "reportsCount": 2,
-      "hasAiInsights": true,
-      "recommendationsCount": 3,
-      "financialSummary": {
-        "totalRevenue": 12500.00,
-        "totalExpenses": 5000.00,
-        "grossProfit": 7500.00,
-        "netProfit": 6750.00,
-        "accountsReceivable": 2500.00,
-        "accountsPayable": 1000.00,
-        "cashPosition": 8500.00
-      }
-    }
-  ]
-}
-```
-
-### 8. Get Tunisian Tax Summary
-`GET /api/accounting/business/{business_id}/taxes?year=2024`
-
-Returns a persisted tax summary for the given year. If a summary does not exist the endpoint returns `404` and instructs the caller to POST to the calculate endpoint to generate and persist the summary.
-
-**Response:**
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "businessName": "Acme Corp",
-  "year": 2024,
-  "currency": "TND",
-  "summary": {
-    "annualVatTotal": 28500.00,
-    "annualCorporateTax": 13500.00,
-    "annualWithholdingTax": 2250.00,
-    "totalTaxLiability": 44250.00
-  },
-  "vatBreakdown": {
-    "standardRate19Percent": 28500.00,
-    "reducedRate13Percent": 0.00,
-    "reducedRate7Percent": 0.00
-  },
-  "monthlyDetails": [
-    {
-      "month": 1,
-      "period": "01/2024",
-      "vatStandard19": 2375.00,
-      "vatReduced13": 0.00,
-      "vatReduced7": 0.00,
-      "vatTotal": 2375.00,
-      "taxableIncome": 7500.00,
-      "corporateTaxDue": 1125.00,
-      "withholdingTax": 187.50,
-      "totalTaxLiability": 3631.25,
-      "dueDate": "2024-02-28T00:00:00"
-    }
-  ],
-  "taxCalendar": [
-    {
-      "period": "01/2024",
-      "dueDate": "2024-02-28T00:00:00",
-      "description": "VAT due for January 2024"
-    }
-  ],
-  "notes": [
-    "VAT (TVA) is due by the 28th of the following month",
-    "Standard VAT rate: 19%",
-    "Reduced rates: 13% (transport, tourism), 7% (medical, education)",
-    "Corporate tax (IS): 15% for SMEs, 25% for larger companies",
-    "Withholding tax: 1.5% on B2B transactions"
-  ]
-}
-```
-
-### API Endpoint Summary
-
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| GET | `/` | Service info | No |
-| GET | `/api/health` | Basic health check | No |
-| GET | `/api/health/ready` | Readiness probe | No |
-| POST | `/api/accounting/jobs` | Create accounting job | Yes |
-| GET | `/api/accounting/jobs` | List jobs | Yes |
-| GET | `/api/accounting/jobs/{task_id}` | Get job status | Yes |
-| GET | `/api/accounting/jobs/{task_id}/results` | Get job results | Yes |
-| DELETE | `/api/accounting/jobs/{task_id}` | Cancel job | Yes |
-| GET | `/api/accounting/business/{business_id}/history` | Accounting history | Yes |
-| GET | `/api/accounting/business/{business_id}/work` | All work details | Yes |
-| GET | `/api/accounting/business/{business_id}/taxes` | Tax summary (returns 404 if not calculated) | Yes |
-| POST | `/api/accounting/business/{business_id}/taxes/calculate` | Calculate and persist Tunisian tax summary for a year | Yes |
-
-### Security
-
-- All `/api/accounting/*` endpoints are protected by an API key check. Provide the API key in the `X-API-Key` header when calling protected endpoints. The key is configured via the `API_KEY` environment variable (see `app/config.py`). If `API_KEY` is not set the service will run unprotected but log a warning.
-- An optional `Authorization: Bearer <token>` JWT may be provided; the service accepts a bearer token but does not perform full JWT validation by default (Accountia API should validate tokens). Security behavior is implemented in `app/core/security.py`.
-
-### Training / Admin Endpoints (optional)
-
-There is an administrative training router implemented at `app/routers/training.py` that provides utilities for generating synthetic training data, exporting business data for training, and starting fine-tuning. Important: this router is not mounted in the application by default — `app/main.py` currently includes only the accounting and health routers. To expose the training endpoints, add the following to `app/main.py`:
-
-```py
-from app.routers import training
-app.include_router(training.router, prefix="/api/training", tags=["Training"])
-```
-
-If mounted, the key training endpoints are:
-
-- `GET /api/training/status` — Returns current model status and which model path is in use.
-- `POST /api/training/data/generate` — Generate synthetic training data. Body: `{ "num_examples": 1000, "output_file": "training_data.jsonl" }`.
-- `POST /api/training/fine-tune` — Start fine-tuning on a previously generated training file. This runs in background; response includes a `jobId`.
-- `POST /api/training/reload` — Reload model weights (use after fine-tuning).
-- `GET /api/training/data/samples?n=5` — Return sample training examples.
-- `POST /api/training/data/export-business` — Export invoices/products for a `businessId` and produce training examples; optionally starts fine-tuning when `autoFineTune=true` and there's enough data.
-
-Example flow (if training router mounted):
+AI-powered accounting service that processes invoices, generates double-entry journal entries, calculates Tunisian taxes, and produces financial reports.
+
+This README documents the current codebase and public HTTP API implemented in this repository. It has been updated to match the current routes and behavior in `app/`.
+
+## Quick overview
+
+- Web framework: FastAPI
+- Persistence: MongoDB (platform DB + per-tenant DBs)
+- Cache / auxiliary: Redis (caching, deduplication, rate limiting)
+- LLM: Groq API (optional) for structured generation; local LLM support removed in this build
+- Built-in analyzer: `TinyAccountingAnalyzer` (TensorFlow/Keras based) with rule-based fallback
+
+## What the service implements now
+
+Only the endpoints and functionality below are currently implemented and mounted by default in `app/main.py`.
+
+### Public endpoints
+
+Base URL: `http://<host>:8000`
+
+- GET `/` — Service info (service name, version, status). No auth required.
+- GET `/api/health` — Combined liveness/readiness. Reports checks for MongoDB, Redis (optional) and model readiness. Returns HTTP 200 when critical components are ready (MongoDB + model readiness in this build); otherwise returns HTTP 503 with a `not_ready` status.
+
+Accounting API (mounted at `/api/accounting`):
+
+- POST `/api/accounting/jobs`
+  - Create an accounting job for a business period.
+  - Body: `{ businessId, periodStart, periodEnd }` (camelCase)
+  - Validations: period_end >= period_start; period length <= 365 days.
+  - Behavior: resolves tenant DB via `BusinessService`, creates a platform-side `AccountingTask` (Beanie) and upserts a tenant-side copy, then schedules background processing.
+  - Returns task metadata and ETA.
+
+- GET `/api/accounting/jobs?businessId={businessId}&limit={n}`
+  - List recent accounting jobs for a business (tenant DB `accounting_tasks` read).
+  - Query params: `businessId` (required), `limit` (1-100, default 10).
+
+- GET `/api/accounting/jobs/{task_id}?businessId={businessId}`
+  - Get job status; if the job is completed returns the full results (financial summary, tax breakdowns, journal entries preview, AI insights). While processing returns a lightweight status object.
+
+- GET `/api/accounting/jobs/{task_id}/results?businessId={businessId}`
+  - Return the full `AccountingResultsResponse` for a completed job. Returns 400 if job not completed, 404 if task not found.
+
+Tax endpoints (persisted results):
+
+- POST `/api/accounting/taxes/{business_id}/{year}`
+  - Calculate taxes for the specified year for the tenant, produce an analysis via the tiny analyzer, and upsert a `tax_results` document in the tenant DB. Returns a location pointer to the GET endpoint.
+
+- GET `/api/accounting/taxes/{business_id}/{year}`
+  - Retrieve the previously persisted tax result. Returns 404 if not found.
+
+### Removed / Not mounted
+
+- There is no mounted training/admin router by default. Any documentation describing training endpoints or an administrative training router was removed because it is not mounted and not part of the default service surface.
+- Endpoints for cancelling jobs or fine-grained admin history endpoints are not present in the current code.
+
+## Security
+
+- The project includes helpers in `app/core/security.py`:
+  - `verify_api_key` — checks `X-API-Key` header against `API_KEY` (if configured)
+  - `verify_optional_jwt` — accepts a Bearer token (no validation by default)
+  - `secure_endpoint` — combined dependency that returns auth context
+
+- Current behavior: Routes are protected only if the code applies the dependency. The repository supports API-key enforcement, but it is opt-in per-route. To enable enforcement globally for accounting routes, add `Depends(secure_endpoint)` to the route definitions or apply the dependency on the router.
+
+- To enforce API key: set `API_KEY` in the environment (or `.env`) and apply `secure_endpoint` to routes. If `API_KEY` is not set the service will run without enforced route-level protection and will log a warning.
+
+## Operational notes
+
+- MongoDB
+  - `app/db/mongodb.py` exposes `init_mongodb()`, `get_platform_db()` and `get_tenant_db(database_name)`.
+  - Platform documents (Beanie models) are initialised during startup.
+
+- Redis
+  - `app/db/redis.py` provides `cache_get`, `cache_set`, `dedup_check`, and `rate_limit_check` and is used for caching analyzer outputs, deduping long-running requests, and rate limiting.
+
+- Rate limiting
+  - Middleware `RateLimiter` is registered in `app/main.py`. It uses Redis and is configured to fail-open if Redis is unavailable (requests allowed), and adds rate-limit headers to responses.
+
+- Analyzer
+  - `TinyAccountingAnalyzer` uses `TFAccountingAnalyzer` when a TensorFlow model exists in `/app/.cache/tf_analyzer`. If TF is unavailable or model files are missing it falls back to rule-based analysis. Health currently reports model readiness as a modeled check.
+
+- LLM
+  - Local LLM support has been removed. `app/services/llm_service.py` supports the Groq API when `GROQ_API_KEY` is configured. If not configured structured LLM generation will not be available and engine falls back to internal rule-based logic.
+
+## Data model (high level)
+
+- `AccountingTask` (tenant `accounting_tasks` collection) — task_id, business_id, period_start/end, status, journal_entries, tax_calculations, financial_summary, reports, ai_insights, recommendations, anomalies_detected, created_at, processed_by.
+- `tax_results` (tenant collection) — persisted annual tax results with analysis and timestamps.
+
+See `app/db/schemas.py` for full Pydantic/Beanie model definitions.
+
+## How to run locally
+
+1. Create a Python venv and install requirements:
 
 ```bash
-# Generate synthetic training data
-curl -X POST http://localhost:8000/api/training/data/generate \
-  -H "Content-Type: application/json" \
-  -d '{"num_examples":1000, "output_file":"training_data.jsonl"}'
-
-# Start fine-tuning
-curl -X POST http://localhost:8000/api/training/fine-tune \
-  -H "Content-Type: application/json" \
-  -d '{"training_file":"training_data.jsonl","num_epochs":3}'
-```
-
-I can enable these routes in the app and add detailed request/response examples if you want.
-
-### Tax Rates Reference
-
-| Tax Type | Rate | Applies To |
-|----------|------|------------|
-| VAT Standard | 19% | Most goods/services |
-| VAT Reduced | 13% | Transport, tourism |
-| VAT Reduced | 7% | Medical, education |
-| Corporate Tax | 15% | SMEs |
-| Corporate Tax | 25% | Larger companies |
-| Withholding | 1.5% | B2B transactions |
-
-### Integration Flow Example
-
-```bash
-# 1. Create job
-curl -X POST http://localhost:8000/api/accounting/jobs \
-  -H "X-API-Key: your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{"businessId":"60d5ecb8b6f3c72e7c8e4a5b","periodStart":"2024-01-01T00:00:00Z","periodEnd":"2024-01-31T23:59:59Z"}'
-
-# 2. Poll for completion
-curl "http://localhost:8000/api/accounting/jobs/{task_id}?businessId=60d5ecb8b6f3c72e7c8e4a5b" \
-  -H "X-API-Key: your_api_key"
-
-# 3. Get results
-curl "http://localhost:8000/api/accounting/jobs/{task_id}/results?businessId=60d5ecb8b6f3c72e7c8e4a5b" \
-  -H "X-API-Key: your_api_key"
-
-# 4. List all jobs for a business
-curl "http://localhost:8000/api/accounting/jobs?businessId=60d5ecb8b6f3c72e7c8e4a5b&limit=10" \
-  -H "X-API-Key: your_api_key"
-
-# 5. Cancel a pending/processing job
-curl -X DELETE "http://localhost:8000/api/accounting/jobs/{task_id}?businessId=60d5ecb8b6f3c72e7c8e4a5b" \
-  -H "X-API-Key: your_api_key"
-
-# 6. Get tax summary
-curl "http://localhost:8000/api/accounting/business/60d5ecb8b6f3c72e7c8e4a5b/taxes?year=2024" \
-  -H "X-API-Key: your_api_key"
-```
-
-## Setup
-
-### Local Development
-
-1. **Install dependencies:**
-```bash
+python -m venv .venv
+. .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. **Copy environment file:**
-```bash
-cp .env.example .env
-# Edit .env with your MongoDB URI and Groq API key
-```
+2. Set `.env` (or environment variables) for `MONGO_URI` (required). Optional but recommended: `API_KEY`, `GROQ_API_KEY`, `REDIS_URL`.
 
-3. **Generate training data (optional):**
-```bash
-python generate_training_data.py --examples 1000
-```
-
-4. **Run the service:**
-```bash
-uvicorn app.main:app --reload
-```
-
-### Docker
-
-```bash
-docker-compose up -d
-```
-
-This starts:
-- AI Accountant API (port 8000)
-- MongoDB (port 27017)
-
-## Development
-
-### Code Quality
-
-The project uses `ruff` for linting and formatting, and `pytest` for testing.
-
-**Available Make commands:**
-
-```bash
-# Install dependencies
-make install
-
-# Run development server
-make dev
-
-# Run linter
-make lint
-
-# Format code
-make format
-
-# Run tests
-make test
-
-# Run tests with coverage
-make test-cov
-
-# Run full CI (lint + format check + test + build)
-make ci
-
-# Build package
-make build
-
-# Clean build artifacts
-make clean
-```
-
-**Linting rules:** Configured in `pyproject.toml` with pycodestyle, Pyflakes, isort, pep8-naming, pyupgrade, flake8-bugbear, comprehensions, and simplify rules.
-
-### Testing
-
-Tests are in the `tests/` directory and use `pytest` with `pytest-asyncio`:
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=app --cov-report=term-missing
-```
-
-### CI/CD
-
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and PR:
-
-1. **Lint & Format Check** - Ensures code passes ruff linting and is properly formatted
-2. **Test** - Runs pytest suite
-3. **Build** - Verifies package builds successfully
-4. **Type Check** - Runs mypy for static type checking
-
-## Training the Model (Offline)
-
-Training is done **offline** before deploying the service. The API only exposes accounting endpoints.
-
-### Option 1: Synthetic Data
-```bash
-python train_model.py --generate --train
-```
-
-### Option 2: Real Business Data
-```bash
-python train_model.py \
-	--business-id 60d5ecb8b6f3c72e7c8e4a5b \
-	--business-name "My Company" \
-	--train
-```
-
-### Training Options
-```bash
-# More examples
-python train_model.py --generate --num-examples 5000 --train
-
-# More epochs (better quality, slower)
-python train_model.py --generate --train --epochs 5
-
-# Custom output location
-python train_model.py --generate --train --model-output models/my_model
-```
-
-## How It Works
-
-### Accounting Process
-
-1. **Request Received**: Business provides date range (e.g., Jan 1-31)
-2. **Data Fetch**: Service reads invoices from tenant's MongoDB collection
-   
-	 Invoice schema (what the engine expects):
-
-	 - `issuerBusinessId`: ObjectId or string matching the `business_id`.
-	 - `issuedDate`: ISO datetime when the invoice was issued.
-	 - `totalAmount`: numeric total for the invoice (preferred).
-		 - Older/alternate fields: `total` or `total_amount` will be accepted.
-	 - `lineItems` (preferred) or `lines`: array of line objects with at least:
-		 - `productId` (ObjectId/string), `productName`, `quantity`, `unitPrice`, `amount`.
-	 - `status`: one of `DRAFT`, `ISSUED`, `PAID`, `PARTIAL`, `OVERDUE`, `DISPUTED`.
-
-	 Example invoice document (simplified):
-
-	 ```json
-	 {
-		 "_id": "69d5b00eab5a83676147f71a",
-		 "issuerBusinessId": "69d596205c7d958b7c5f0709",
-		 "issuedDate": "2026-04-08T00:00:00Z",
-		 "status": "ISSUED",
-		 "lineItems": [
-			 {"productId": "69d596f25c7d958b7c5f074a", "productName": "HP pcs", "quantity": 2, "unitPrice": 2000, "amount": 4000}
-		 ],
-		 "totalAmount": 4000
-	 }
-	 ```
-
-	 Notes: the engine normalizes `totalAmount` and `lineItems` at runtime and will fall back to alternate field names if necessary.
-3. **Journal Entries**: Generates double-entry bookkeeping entries
-	 - Revenue recognition (accrual basis)
-	 - COGS matching
-	 - A/R tracking
-	 - Tax liabilities
-4. **Tax Calculation**: Computes VAT/Sales tax by rate
-5. **Financial Summary**: Calculates P&L metrics
-6. **AI Analysis**: LLM generates insights and recommendations
-7. **Results Saved**: All data written back to `accounting_tasks` collection
-
-### Multi-Tenancy
-
-- Reads from business-specific tenant database
-- Results stored in same tenant DB (isolated per business)
-- Task ID: `{business_id}_{start_date}_{end_date}`
-
-### Journal Entry Logic
-
-| Invoice Status | Debit | Credit |
-|----------------|-------|--------|
-| **PAID** | Cash/Bank (total) | Revenue (total) |
-| | COGS | Inventory |
-| **PARTIAL** | Cash/Bank (paid) | Revenue (total) |
-| | A/R (remaining) | |
-| **ISSUED/OVERDUE** | A/R (total) | Revenue (total) |
-
-### Integration with Accountia API
-
-From a backend (e.g. NestJS), call the AI Accountant by sending the business's `business_id` and the ISO period range. The service requires the `X-API-Key` header for service-to-service auth (and supports an optional bearer `Authorization` JWT). Do NOT send `database_name`—the service resolves the tenant DB from the platform.
-
-```typescript
-// In your business controller (example - NestJS)
-@Post(':id/accounting')
-async runAccounting(
-	@Param('id') businessId: string,
-	@Body() dto: { startDate: string; endDate: string },
-) {
-	const response = await fetch('http://localhost:8000/api/accounting/jobs', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-API-Key': process.env.ACCOUNTIA_API_KEY,
-			// optional: 'Authorization': `Bearer ${token}` if you use JWTs
-		},
-    body: JSON.stringify({
-      businessId: businessId,
-      periodStart: dto.startDate,
-      periodEnd: dto.endDate,
-    }),
-	});
-
-	if (!response.ok) {
-		throw new Error(`Accounting API error: ${response.statusText}`);
-	}
-
-	return response.json();
-}
-```
-
-## Training Data Format
-
-The fine-tuning uses Alpaca-style format:
-
-```json
-{
-	"instruction": "Calculate revenue for these invoices: ...",
-	"input": "",
-	"output": "The total revenue is $10,000..."
-}
-```
-
-Scenarios covered:
-- Revenue recognition (accrual vs cash)
-- COGS calculation
-- Tax computation
-- Journal entry generation
-- Financial analysis
-- Anomaly detection
-
-## Model Details
-
-- **Built-in Analyzer**: Lightweight TensorFlow/Keras-based `TinyAccountingAnalyzer` (default).
-- **Fine-tuning**: Optional — only relevant when `BASE_MODEL` is set to an external model.
-- **Quantization**: N/A for the built-in analyzer. External models may support quantization when deployed.
-- **Fallback**: Groq API (llama-3.3-70b-versatile) when external LLM is not configured or unavailable
-
-## Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `MONGO_URI` | MongoDB connection string (including platform DB name) | Yes |
-| `GROQ_API_KEY` | Groq API key for fallback inference | No |
-| `USE_FINE_TUNED` | Use locally fine-tuned model if available (`true`/`false`) | No |
-| `DEBUG` | Enable debug mode (enables permissive CORS and extra logs) | No |
-
-Additional configuration options (set via `.env` or environment):
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `API_KEY` | Service-to-service API key required in `X-API-Key` header for protected endpoints | None (recommended to set) |
-| `JWT_SECRET` | Optional secret for validating JWTs (the service accepts Bearer tokens but does not validate by default) | None |
-| `BASE_MODEL` | Base LLM identifier used for local inference. Leave empty to use the built-in TensorFlow analyzer | |
-| `FINE_TUNED_MODEL_PATH` | Path to local fine-tuned model (if `USE_FINE_TUNED=true`) | `./models/accountant-lora` |
-| `TRAINING_OUTPUT_DIR` | Directory where fine-tuning output is written | `./models/accountant-lora` |
-
-All settings are defined in `app/config.py` (the `Settings` model). The service reads `.env` by default via `pydantic-settings`.
-
-## Developer Notes: Recent Changes & How to Run
-
-This project has been updated with a number of developer-facing improvements to make accounting jobs reliable, observable, and queueable. The following notes summarize the main changes, how to run the new components, and recommended next steps.
-
-- **Task persistence & multi-tenancy sync**: Jobs are still stored in the platform (Beanie) documents, but create/update paths now also write an idempotent `$set` projection into the tenant database so tenant reads (API endpoints) can immediately see created tasks. This prevents a race where a job created on the platform DB isn't visible to tenant DB reads.
-
-- **Estimated time / ETA**: Jobs store `estimated_seconds` and `estimated_completion` computed at creation time. `GET /api/accounting/jobs` and `GET /api/accounting/jobs/{task_id}` return `estimated_time_remaining` (seconds) derived from `started_at` + `estimated_seconds` when available.
-
-- **Indexes & projections**: Tenant DB writes create idempotent indexes for `task_id` (unique) and `(business_id, period_start)` to accelerate list/status queries and ensure uniqueness.
-
-- **Logging & error handling**: Replaced silent `except` blocks with `logger.debug/exception` and standardized structured logging via `structlog` to avoid TypeError when logging with kwargs.
-
-- **Month-end/tax fixes**: Fixed month-end calculation to use `calendar.monthrange(...)` instead of a fixed `28` day assumption.
-
-- **Security note**: The repository contains `.env.example`. Do NOT commit a live `.env` with secrets. Rotate any secrets exposed during testing; consider removing `.env` from the working tree and using environment-specific secret stores (Vault, AWS SSM, etc.).
-
-- **Linting & Testing**: Added `ruff` for linting/formatting, `pytest` for testing, and GitHub Actions CI workflow. Run `make ci` to run full checks locally.
-
-How to run the new components
-
-- Start the FastAPI app (dev):
+3. Start the service for development:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-- Create a job (example):
+4. Example calls (replace values):
 
 ```bash
-curl -X POST http://localhost:8000/api/accounting/jobs \
-  -H "X-API-Key: your_api_key" \
+# Health
+curl -i http://127.0.0.1:8000/api/health
+
+# Create job
+curl -i -X POST http://127.0.0.1:8000/api/accounting/jobs \
   -H "Content-Type: application/json" \
-  -d '{"businessId":"69d596205c7d958b7c5f0709","periodStart":"2024-03-01T00:00:00Z","periodEnd":"2024-03-31T23:59:59Z"}'
+  -H "X-API-Key: <your_key>" \
+  -d '{"businessId":"<id>","periodStart":"2024-01-01T00:00:00Z","periodEnd":"2024-01-31T23:59:59Z"}'
+
+# List jobs
+curl -i "http://127.0.0.1:8000/api/accounting/jobs?businessId=<id>&limit=10" -H "X-API-Key: <your_key>"
+
+# Get job status
+curl -i "http://127.0.0.1:8000/api/accounting/jobs/<task_id>?businessId=<id>" -H "X-API-Key: <your_key>"
+
+# Calculate taxes for a year (will persist)
+curl -i -X POST "http://127.0.0.1:8000/api/accounting/taxes/<id>/2024" -H "X-API-Key: <your_key>"
+
+# Get persisted tax results
+curl -i "http://127.0.0.1:8000/api/accounting/taxes/<id>/2024" -H "X-API-Key: <your_key>"
 ```
 
-Notes & recommended next steps
+### Endpoint details
 
-- Add Prometheus metrics for: job durations, per-entry processing time, LLM call durations, DB read/write latencies.
-- Add a one-off migration script to backfill tenant DB for any previously created tasks that only exist in the platform DB.
-- Rotate secrets and remove any live `.env` from Git history if it was committed.
+Below are exact request and response shapes for each public endpoint. Authentication notes: the service supports `X-API-Key` enforcement via `secure_endpoint`, but routes are only protected if the dependency is applied. Examples below show the header where relevant.
 
-## Schema Definitions (Full)
+- **GET /**
+  - Description: Service info.
+  - Auth: none
+  - Request: none
+  - Responses:
+    - 200 OK
+      ```json
+      {
+        "service": "accountia",
+        "version": "0.1.0",
+        "status": "ok"
+      }
+      ```
 
-Below are the authoritative JSON schemas and examples you should use when building clients against the HTTP API. Note: tenant database documents are persisted in snake_case (see the tenant examples) while API responses use camelCase.
+- **GET /api/health**
+  - Description: Liveness + readiness. Checks MongoDB and model readiness (model check is considered critical in this build).
+  - Auth: none
+  - Request: none
+  - Responses:
+    - 200 OK
+      ```json
+      {
+        "status": "ready",
+        "checks": {
+          "mongodb": true,
+          "redis": true,
+          "model": true
+        },
+        "workerPid": 12345,
+        "modelInfo": {
+          "name": "tiny_tensorflow_analyzer",
+          "ready": true,
+          "using_tensorflow": true,
+          "model_path": true
+        },
+        "service": "accountia",
+        "version": "0.1.0",
+        "timestamp": "2024-05-01T12:00:00+00:00"
+      }
+      ```
+    - 503 Service Unavailable
+      ```json
+      {
+        "status": "not_ready",
+        "checks": {
+          "mongodb": true,
+          "redis": false,
+          "model": false
+        },
+        "workerPid": 12345,
+        "modelInfo": {
+          "name": "tiny_tensorflow_analyzer",
+          "ready": false,
+          "using_tensorflow": true,
+          "model_path": false
+        },
+        "service": "accountia",
+        "version": "0.1.0",
+        "timestamp": "2024-05-01T12:00:00+00:00"
+      }
+      ```
 
-1) AccountingTask (tenant DB document - snake_case)
-
-```json
-{
-  "business_id": "string",
-  "task_id": "string",
-  "period_start": "2024-01-01T00:00:00Z",
-  "period_end": "2024-01-31T23:59:59Z",
-  "status": "completed",
-  "progress_percent": 100,
-  "started_at": "2024-02-01T09:00:05Z",
-  "completed_at": "2024-02-01T09:02:30Z",
-  "estimated_seconds": 120,
-  "estimated_completion": "2024-02-01T09:02:05Z",
-  "journal_entries": [ /* JournalEntry objects */ ],
-  "tax_calculations": [ /* TaxCalculation objects */ ],
-  "financial_summary": { /* FinancialSummary */ },
-  "reports": [],
-  "ai_insights": "string",
-  "recommendations": [],
-  "anomalies_detected": [],
-  "created_at": "2024-02-01T09:00:00Z",
-  "processed_by": "ai-accountant-v1"
-}
-```
-
-2) AccountingJobStatusResponse (API response - camelCase)
-
-```json
-{
-  "taskId": "string",
-  "businessId": "string",
-  "periodStart": "2024-01-01T00:00:00Z",
-  "periodEnd": "2024-01-31T23:59:59Z",
-  "status": "processing",
-  "progressPercent": 55,
-  "startedAt": "2024-02-01T09:00:05Z",
-  "completedAt": null,
-  "errorMessage": null,
-  "journalEntriesCount": 42,
-  "reportsGenerated": 3,
-  "estimatedSeconds": 120,
-  "estimatedCompletion": "2024-02-01T09:02:05Z",
-  "estimatedTimeRemaining": 65
-}
-```
-
-3) AccountingResultsResponse (API response - camelCase)
-
-```json
-{
-  "taskId": "string",
-  "businessId": "string",
-  "periodStart": "2024-01-01T00:00:00Z",
-  "periodEnd": "2024-01-31T23:59:59Z",
-  "status": "completed",
-  "totalRevenue": 12500.00,
-  "totalExpenses": 5000.00,
-  "grossProfit": 7500.00,
-  "netProfit": 6750.00,
-  "accountsReceivable": 2500.00,
-  "accountsPayable": 1000.00,
-  "cashPosition": 8500.00,
-  "taxCalculations": [
+- **POST /api/accounting/jobs**
+  - Description: Create an accounting job for a business period.
+  - Auth: optional (see security notes). Example uses `X-API-Key` header.
+  - Request (application/json):
+    ```json
     {
-      "taxType": "VAT",
-      "jurisdiction": "Tunisia",
-      "taxableAmount": 12500.00,
-      "taxRate": 0.19,
-      "taxAmount": 2375.00,
-      "notes": ""
+      "businessId": "string",        // required
+      "periodStart": "2024-01-01T00:00:00Z", // ISO8601 string, required
+      "periodEnd": "2024-01-31T23:59:59Z"    // ISO8601 string, required
     }
-  ],
-  "aiInsights": "Revenue up 15% vs last month.",
-  "recommendations": ["Follow up on 3 overdue invoices"],
-  "anomaliesDetected": [],
-  "reports": [],
-  "journalEntries": [
-    {
-      "date": "2024-01-15T00:00:00Z",
-      "account": "Accounts Receivable",
-      "debit": 12500.00,
-      "credit": 0.00,
-      "description": "Invoice INV-2024-001",
-      "invoiceId": "INV-2024-001",
-      "metadata": {}
-    }
-  ],
-  "totalJournalEntries": 42
-}
-```
+    ```
+  - Responses:
+    - 201 Created
+      ```json
+      {
+        "taskId": "645f1b2c9a1e4f3b2c9a9999",
+        "businessId": "biz_001",
+        "status": "pending",
+        "message": "Accounting job created for period 2024-01-01 to 2024-01-31",
+        "estimatedSeconds": 45,
+        "estimatedCompletion": "2024-02-01T12:35:41Z"
+      }
+      ```
+    - 400 Bad Request (validation)
+      ```json
+      { "detail": "periodEnd must be after periodStart" }
+      ```
 
-4) TaxSummary (API response / persisted document mapping)
+- **GET /api/accounting/jobs?businessId={businessId}&limit={n}**
+  - Description: List recent jobs for a business.
+  - Auth: optional
+  - Query params:
+    - `businessId` (string, required)
+    - `limit` (integer, optional, 1-100, default 10)
+  - Responses:
+    - 200 OK
+      ```json
+      {
+        "businessId": "biz_001",
+        "jobs": [
+          {
+            "taskId": "645f1b2c9a1e4f3b2c9a1234",
+            "periodStart": "2024-01-01T00:00:00Z",
+            "periodEnd": "2024-01-31T23:59:59Z",
+            "status": "completed",
+            "progressPercent": 100,
+            "estimatedSeconds": 45,
+            "estimatedCompletion": "2024-02-01T12:35:41Z",
+            "estimatedTimeRemaining": 0,
+            "startedAt": "2024-01-31T12:00:00Z",
+            "completedAt": "2024-02-01T12:34:56Z",
+            "journalEntriesCount": 42,
+            "reportsGenerated": 3
+          },
+          {
+            "taskId": "645f1b2c9a1e4f3b2c9a5678",
+            "periodStart": "2024-02-01T00:00:00Z",
+            "periodEnd": "2024-02-28T23:59:59Z",
+            "status": "processing",
+            "progressPercent": 42,
+            "estimatedSeconds": 90,
+            "estimatedCompletion": "2024-03-01T08:16:30Z",
+            "estimatedTimeRemaining": 52,
+            "startedAt": "2024-03-01T08:15:00Z",
+            "completedAt": null,
+            "journalEntriesCount": 12,
+            "reportsGenerated": 0
+          }
+        ]
+      }
+      ```
 
-The tenant DB stores the persisted tax summary in snake_case under `tax_summaries`. The API responses convert keys to camelCase. Example API response for both GET and POST (calculate) is:
+- **GET /api/accounting/jobs/{task_id}?businessId={businessId}**
+  - Description: Get job status and (if completed) results summary.
+  - Auth: optional
+  - Path params: `task_id` (string)
+  - Query params: `businessId` (string, required)
+  - Responses:
+    - 200 OK (processing)
+      ```json
+      {
+        "taskId": "645f1b2c9a1e4f3b2c9a5678",
+        "businessId": "biz_001",
+        "periodStart": "2024-02-01T00:00:00Z",
+        "periodEnd": "2024-02-28T23:59:59Z",
+        "status": "processing",
+        "progressPercent": 42,
+        "startedAt": "2024-03-01T08:16:00Z",
+        "completedAt": null,
+        "errorMessage": null,
+        "journalEntriesCount": 12,
+        "reportsGenerated": 0,
+        "estimatedSeconds": 90,
+        "estimatedCompletion": "2024-03-01T08:16:30Z",
+        "estimatedTimeRemaining": 52
+      }
+      ```
+    - 200 OK (completed)
+      Returns the full results payload (same schema as GET `/api/accounting/jobs/{task_id}/results`). See the detailed `AccountingResultsResponse` example in the `GET /api/accounting/jobs/{task_id}/results` section below.
+    - 404 Not Found
+      ```json
+      { "detail": "task not found" }
+      ```
 
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "businessName": "Acme Corp",
-  "year": 2024,
-  "currency": "TND",
-  "summary": {
-    "annualVatTotal": 28500.00,
-    "annualCorporateTax": 13500.00,
-    "annualWithholdingTax": 2250.00,
-    "totalTaxLiability": 44250.00
-  },
-  "vatBreakdown": {
-    "standardRate19Percent": 28500.00,
-    "reducedRate13Percent": 0.00,
-    "reducedRate7Percent": 0.00
-  },
-  "monthlyDetails": [ /* per-month breakdown objects */ ],
-  "taxCalendar": [ /* calendar entries with dueDate (ISO string) and description */ ],
-  "notes": ["VAT (TVA) is due by the 28th of the following month"],
-  "createdAt": "2024-02-01T09:05:00Z",
-  "lastUpdatedAt": "2024-02-01T09:05:00Z"
-}
-```
+- **GET /api/accounting/jobs/{task_id}/results?businessId={businessId}**
+  - Description: Full results payload for a completed job.
+  - Auth: optional
+  - Responses:
+    - 200 OK
+      ```json
+      {
+        "taskId": "645f1b2c9a1e4f3b2c9a1234",
+        "businessId": "biz_001",
+        "periodStart": "2024-01-01T00:00:00Z",
+        "periodEnd": "2024-01-31T23:59:59Z",
+        "status": "completed",
+        "totalRevenue": 12345.67,
+        "totalExpenses": 10999.00,
+        "grossProfit": 6913.57,
+        "netProfit": 2345.67,
+        "accountsReceivable": 2000.00,
+        "accountsPayable": 1200.00,
+        "cashPosition": 5000.00,
+        "taxCalculations": [
+          {
+            "taxType": "VAT",
+            "jurisdiction": "TN",
+            "taxableAmount": 1000.0,
+            "taxRate": 0.19,
+            "taxAmount": 190.0,
+            "notes": "Standard VAT"
+          }
+        ],
+        "aiInsights": "Anomaly: missing invoices for 2024-01-15",
+        "recommendations": ["Review vendor X"],
+        "anomaliesDetected": [{"type":"missing_invoice","detail":"INV-2024-015","severity":"medium"}],
+        "reports": [
+          {"reportType": "P&L", "periodStart": "2024-01-01T00:00:00Z", "periodEnd": "2024-01-31T23:59:59Z", "data": {}}
+        ],
+        "journalEntries": [
+          {"date": "2024-01-05", "account": "Accounts Receivable", "debit": 1000.0, "credit": 0.0, "description": "Invoice INV-1001", "invoiceId": "INV-1001"}
+        ],
+        "totalJournalEntries": 42
+      }
+      ```
+    - 400 Bad Request (not completed)
+      ```json
+      { "detail": "task not completed" }
+      ```
 
-POST /api/accounting/business/{business_id}/taxes/calculate
+- **POST /api/accounting/taxes/{business_id}/{year}**
+  - Description: Compute and persist annual tax result for a business.
+  - Auth: optional
+  - Path params: `business_id` (string), `year` (int)
+  - Request: none (service reads tenant data)
+  - Responses:
+    - 201 Created
+      ```json
+      { "businessId": "biz_001", "year": 2024, "success": true }
+      ```
+    - 404 Not Found (tenant or data missing)
+      ```json
+      { "detail": "business not found or no accounting data for year" }
+      ```
 
-- Description: Calculate taxes for a given `year` and persist the result in the tenant DB. If a summary already exists the endpoint returns a message indicating the existing summary.
-- Parameters: `year` (query param, optional — defaults to current year)
-- Body: none
+- **GET /api/accounting/taxes/{business_id}/{year}**
+  - Description: Retrieve persisted tax result for a business/year.
+  - Auth: optional
+  - Responses:
+    - 200 OK
+      ```json
+      {
+        "businessId": "biz_001",
+        "year": 2024,
+        "taxBreakdown": {
+          "vat_standard_19": 190.0,
+          "vat_reduced_13": 0.0,
+          "vat_reduced_7": 0.0,
+          "vat_exempt": 0.0,
+          "vat_total": 190.0,
+          "taxable_income": 10000.0,
+          "corporate_tax_rate": 0.15,
+          "corporate_tax_due": 1500.0,
+          "withholding_tax": 15.0,
+          "total_tax_liability": 1705.0,
+          "filing_period": "01/2024",
+          "due_date": "2024-02-28T00:00:00Z"
+        },
+        "analysis": {
+          "insights": "Basic analysis summary",
+          "recommendations": ["Confirm VAT filings for Q2"],
+          "anomalies": [
+            { "type": "missing_invoice", "detail": "Invoice INV-2024-015 missing line items", "severity": "medium" }
+          ]
+        },
+        "createdAt": "2024-04-01T10:00:00Z",
+        "lastUpdatedAt": "2024-04-01T10:00:00Z"
+      }
+      ```
+    - 404 Not Found
+      ```json
+      { "detail": "tax result not found" }
+      ```
 
-Example request (no body, using query param):
+## Development & quality
 
-```bash
-curl -X POST "http://localhost:8000/api/accounting/business/60d5ecb8b6f3c72e7c8e4a5b/taxes/calculate?year=2024" \
-  -H "X-API-Key: your_api_key"
-```
+- Tests: `pytest` (tests in `tests/`)
+- Lint: `ruff` configured via `Makefile`/`pyproject.toml`
 
-Example successful response (created/persisted):
+## Notes & recommended cleanup
 
-```json
-{
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "businessName": "Acme Corp",
-  "year": 2024,
-  "summary": {
-    "annualVatTotal": 28500.00,
-    "annualCorporateTax": 13500.00,
-    "annualWithholdingTax": 2250.00,
-    "totalTaxLiability": 44250.00
-  }
-}
-```
+- Remove or mount training/admin routers only when you intentionally enable training flows.
+- Consider making the model check non-critical in `/api/health` if you want readiness to be `200` when the rule-based analyzer is used.
+- Protect sensitive endpoints by applying `secure_endpoint` dependency or adding middleware that enforces API-key globally.
 
-Example response when a summary already exists:
+If you want, I can now:
+- apply `secure_endpoint` to all accounting routes so they require the API key, or
+- remove the model from the health critical checks so readiness is tolerant when TF model is absent, or
+- generate a compact OpenAPI summary file / docs update for consumers.
 
-```json
-{
-  "message": "Tax summary already exists",
-  "businessId": "60d5ecb8b6f3c72e7c8e4a5b",
-  "year": 2024
-}
-```
-
-Notes:
-
-- Numeric monetary values are stored as Decimals in the DB models but API responses use floats for JSON compatibility.
-- All timestamps are UTC ISO 8601 strings.
-
-## Error Response Examples (per endpoint)
-
-Each endpoint can return standard JSON error responses with an HTTP status code and `detail` field. Below are explicit examples for common errors.
-
-Common error JSON format:
-```json
-{
-	"detail": "Human-readable error message"
-}
-```
-
-1) `POST /api/accounting/jobs`
-- 400 Invalid period:
-```json
-HTTP/1.1 400 Bad Request
-{
-	"detail": "Accounting period cannot exceed 365 days"
-}
-```
-- 404 Business not found:
-```json
-HTTP/1.1 404 Not Found
-{
-	"detail": "Business not found for id 69..."
-}
-```
-- 401 Missing API key:
-```json
-HTTP/1.1 401 Unauthorized
-{
-	"detail": "API key required. Access denied."
-}
-```
-- 403 Invalid API key:
-```json
-HTTP/1.1 403 Forbidden
-{
-	"detail": "Invalid API key. Access denied."
-}
-```
-- 500 Save failure:
-```json
-HTTP/1.1 500 Internal Server Error
-{
-	"detail": "Failed to create job: <error message>"
-}
-```
-
-2) `GET /api/accounting/jobs` (list)
-- 404 Business not found:
-```json
-HTTP/1.1 404 Not Found
-{
-	"detail": "Business not found for id 69..."
-}
-```
-
-3) `GET /api/accounting/jobs/{task_id}` (status)
-- 404 Task not found:
-```json
-HTTP/1.1 404 Not Found
-{
-	"detail": "Task not found"
-}
-```
-
-4) `GET /api/accounting/jobs/{task_id}/results`
-- 404 Task not found:
-```json
-HTTP/1.1 404 Not Found
-{
-	"detail": "Task not found"
-}
-```
-- 400 Not completed yet:
-```json
-HTTP/1.1 400 Bad Request
-{
-	"detail": "Task not completed. Current status: processing"
-}
-```
-
-5) `DELETE /api/accounting/jobs/{task_id}`
-- 404 Task not found:
-```json
-HTTP/1.1 404 Not Found
-{
-	"detail": "Task not found"
-}
-```
-- 400 Cannot cancel:
-```json
-HTTP/1.1 400 Bad Request
-{
-	"detail": "Cannot cancel job with status 'completed'. Only pending or processing jobs can be cancelled."
-}
-```
-
-6) Readiness / health endpoints
-- 200 readiness not ready (example):
-```json
-HTTP/1.1 200 OK
-{
-	"status": "not_ready",
-	"checks": { "mongodb": false, "model": true }
-}
-```
-
-Implementation notes
-- All error responses are raised via FastAPI `HTTPException(detail=...)` and follow the `{"detail":"..."}` schema.
-- If you need richer error schemas (codes, types, troubleshooting links), I can add a standardized error model and update all endpoints to return it.
-
-## License
-
-Proprietary - Accountia Platform
-
+Tell me which change you'd like next and I'll implement it.

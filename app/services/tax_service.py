@@ -257,13 +257,20 @@ class TunisianTaxService:
             sum(Decimal(str(inv.get("amountPaid", 0))) for inv in invoices), "b2b"
         )
 
-        # Total tax liability
+        # Total tax liability (VAT + corporate + withholding)
         total_tax = vat_breakdown["vat_total"] + corporate_tax + withholding_tax
 
         # Filing period and due date
         filing_period = period_start.strftime("%m/%Y")
         # VAT due by the 28th of the following month
-        due_date = datetime(period_end.year, period_end.month + 1 if period_end.month < 12 else 1, 28)
+        if period_end.month == 12:
+            due_month = 1
+            due_year = period_end.year + 1
+        else:
+            due_month = period_end.month + 1
+            due_year = period_end.year
+
+        due_date = datetime(due_year, due_month, 28)
 
         return TunisianTaxBreakdown(
             vat_standard_19=vat_breakdown["vat_19"],

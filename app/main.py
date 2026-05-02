@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
@@ -50,8 +51,11 @@ async def lifespan(app: FastAPI):
 
     # Initialize tiny analyzer (optional, low RAM - 66M params vs 1.5B)
     try:
-        await TinyAccountingAnalyzer.initialize()
-        logger.info("tiny_analyzer_ready", worker_pid=pid)
+        _ready = await TinyAccountingAnalyzer.initialize()
+        if _ready:
+            logger.info("tiny_analyzer_ready", worker_pid=pid)
+        else:
+            logger.info("tiny_analyzer_not_ready", reason="model_missing_or_tf_unavailable")
     except Exception as e:
         logger.warning("tiny_analyzer_failed", error=str(e), fallback="rule_based")
 
@@ -180,7 +184,13 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         )
 
         # Recreate response since body_iterator was consumed
-        return StarletteResponse(content=resp_body, status_code=response.status_code, headers=dict(response.headers), media_type=response.media_type)
+        resp_headers = dict(response.headers)
+        return StarletteResponse(
+            content=resp_body,
+            status_code=response.status_code,
+            headers=resp_headers,
+            media_type=response.media_type,
+        )
 
 
 # Add request/response logging middleware (enabled via settings)
@@ -199,16 +209,35 @@ app.include_router(accounting.router, prefix="/api/accounting", tags=["Accountin
 app.include_router(health.router, prefix="/api/health", tags=["System"])
 
 
+class ServiceInfoResponse(BaseModel):
+    service: str = Field(...)
+    version: str = Field(...)
+    status: str = Field(...)
+    description: str = Field(...)
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "service": "Accountia AI Accountant",
+                "version": settings.version,
+                "status": "operational",
+                "description": "AI-powered accounting for Tunisian businesses",
+            }
+        }
+    }
+
+
 @app.get(
     "/",
     tags=["System"],
     summary="Service Info",
     description="Get service health and version information",
+    response_model=ServiceInfoResponse,
 )
 async def root():
-    return {
-        "service": "Accountia AI Accountant",
-        "version": settings.version,
-        "status": "operational",
-        "description": "AI-powered accounting for Tunisian businesses",
-    }
+    return ServiceInfoResponse(
+        service="Accountia AI Accountant",
+        version=settings.version,
+        status="operational",
+        description="AI-powered accounting for Tunisian businesses",
+    ).model_dump(by_alias=False)

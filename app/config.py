@@ -1,6 +1,7 @@
 import re
 from functools import lru_cache
 
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
@@ -61,9 +62,7 @@ class Settings(BaseSettings):
     jwt_secret: str | None = None
     api_key: str | None = None
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config: ConfigDict = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     def get_platform_db_name(self) -> str:
         """Extract database name from MongoDB URI."""

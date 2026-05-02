@@ -77,10 +77,10 @@ COPY --chown=appuser:appgroup gunicorn.conf.py .
 COPY --chown=appuser:appgroup start.sh .
 RUN chmod +x start.sh
 
-# Ensure cache directories have correct permissions
-RUN mkdir -p /app/.cache && \
-    chown -R appuser:appgroup /app/.cache && \
-    chmod -R 755 /app/.cache
+# Ensure cache and analyzer_model directories have correct permissions
+RUN mkdir -p /app/.cache /app/analyzer_model && \
+    chown -R appuser:appgroup /app/.cache /app/analyzer_model && \
+    chmod -R 755 /app/.cache /app/analyzer_model
 
 # Switch to non-root user
 USER appuser
