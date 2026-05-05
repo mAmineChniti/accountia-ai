@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.core.rate_limiter import RateLimiter
 from app.db.mongodb import close_mongodb, init_mongodb
 from app.db.redis import close_redis, init_redis
-from app.routers import accounting, health
+from app.routers import accounting, alerts, health, metrics
 from app.services.tiny_analyzer import TinyAccountingAnalyzer
 
 logger = structlog.get_logger()
@@ -207,6 +207,8 @@ app.add_middleware(
 # Routers
 app.include_router(accounting.router, prefix="/api/accounting", tags=["Accounting"])
 app.include_router(health.router, prefix="/api/health", tags=["System"])
+app.include_router(metrics.router, prefix="/api/metrics", tags=["System"])
+app.include_router(alerts.router, prefix="/api/alerts", tags=["System"])
 
 
 class ServiceInfoResponse(BaseModel):

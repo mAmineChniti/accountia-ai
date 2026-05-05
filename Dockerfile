@@ -91,7 +91,7 @@ EXPOSE ${PORT:-8000}
 # Health check (Render uses this)
 # Use PORT env var (set by Render), fallback to 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f "http://localhost:${PORT:-8000}/api/health/ready" || exit 1
+    CMD curl -f "http://localhost:${PORT:-8000}/api/health" || exit 1
 
 # Production command
 CMD ["./start.sh"]
