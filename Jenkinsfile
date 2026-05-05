@@ -26,6 +26,10 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
+                    # Ensure Python 3.11 is available
+                    which python3.11 || (echo "Python 3.11 not found" && exit 1)
+                    python3.11 --version
+                    
                     python3.11 -m venv venv
                     ./venv/bin/python -m pip install --upgrade pip
                     ./venv/bin/python -m pip install -r requirements.txt coverage
