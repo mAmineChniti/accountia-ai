@@ -7,8 +7,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: 'Accountia AI is down'
-          description: 'Prometheus cannot scrape the AI metrics endpoint for more than one minute.'
+          summary: "Accountia AI is down"
+          description: "Prometheus cannot scrape the AI metrics endpoint for more than one minute."
 
       - alert: HighProcessMemoryUsage
         expr: process_resident_memory_bytes > 200000000
@@ -16,5 +16,5 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'High memory usage on Accountia AI'
-          description: 'AI process memory is above 200MB for more than 5 minutes.'
+          summary: "High memory usage on Accountia AI"
+          description: "AI process memory is above 200MB for more than 5 minutes."

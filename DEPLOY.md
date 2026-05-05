@@ -70,28 +70,28 @@ docker run -p 8000:8000 \
 
 ### Required
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `MONGO_URI` | MongoDB Atlas connection string | `mongodb+srv://user:pass@cluster.mongodb.net/accountia_platform` |
-| `API_KEY` | API key for authentication (generate with `openssl rand -hex 32`) | `abc123...` |
+| Variable    | Description                                                       | Example                                                          |
+| ----------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `MONGO_URI` | MongoDB Atlas connection string                                   | `mongodb+srv://user:pass@cluster.mongodb.net/accountia_platform` |
+| `API_KEY`   | API key for authentication (generate with `openssl rand -hex 32`) | `abc123...`                                                      |
 
 ### Optional
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REDIS_URL` | - | Redis connection for caching/rate limiting |
-| `GROQ_API_KEY` | - | Groq API key for LLM fallback |
-| `GUNICORN_WORKERS` | `2` | Number of worker processes (each loads a model) |
-| `LOG_LEVEL` | `info` | Logging level (debug, info, warning, error) |
-| `DEVICE` | `cpu` | Compute device (cpu/cuda - Render uses CPU) |
-| `BASE_MODEL` | (optional) | Base model id or local path. Leave empty to use built-in TensorFlow analyzer or provide an external model when optional ML deps are installed. |
-| `USE_FINE_TUNED` | `false` | Whether to use fine-tuned LoRA adapter |
+| Variable           | Default    | Description                                                                                                                                    |
+| ------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`        | -          | Redis connection for caching/rate limiting                                                                                                     |
+| `GROQ_API_KEY`     | -          | Groq API key for LLM fallback                                                                                                                  |
+| `GUNICORN_WORKERS` | `2`        | Number of worker processes (each loads a model)                                                                                                |
+| `LOG_LEVEL`        | `info`     | Logging level (debug, info, warning, error)                                                                                                    |
+| `DEVICE`           | `cpu`      | Compute device (cpu/cuda - Render uses CPU)                                                                                                    |
+| `BASE_MODEL`       | (optional) | Base model id or local path. Leave empty to use built-in TensorFlow analyzer or provide an external model when optional ML deps are installed. |
+| `USE_FINE_TUNED`   | `false`    | Whether to use fine-tuned LoRA adapter                                                                                                         |
 
 ### Render-Specific
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `RENDER` | `true` | Marks Render environment for special handling |
+| Variable  | Value                     | Description                                                                  |
+| --------- | ------------------------- | ---------------------------------------------------------------------------- |
+| `RENDER`  | `true`                    | Marks Render environment for special handling                                |
 | `HF_HOME` | `/app/.cache/huggingface` | (legacy) HuggingFace cache location — optional when using external HF models |
 
 ## Performance Tuning
@@ -118,6 +118,7 @@ GUNICORN_WORKERS=4
 ```
 
 Each worker:
+
 - Handles requests independently
 - Loads its own model copy (no sharing)
 - Can be restarted without affecting others
@@ -145,10 +146,11 @@ Render uses these endpoints:
 
 ```yaml
 # render.yaml
-numInstances: 2  # Add more instances as needed
+numInstances: 2 # Add more instances as needed
 ```
 
 Each instance:
+
 - Is independent with its own workers
 - Has its own model copies
 - Connects to same MongoDB/Redis
@@ -156,6 +158,7 @@ Each instance:
 ### Vertical Scaling
 
 Increase Render plan for more workers per instance:
+
 - More RAM = more workers = higher throughput
 - But: diminishing returns due to CPU contention
 
@@ -184,13 +187,13 @@ View structured logs in Render Dashboard:
 
 ### Common Issues
 
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| Readiness probe fails | Model not loading | Check logs for model errors; verify `HF_HOME` |
-| High memory usage | Too many workers | Reduce `GUNICORN_WORKERS` |
-| Slow cold starts | Runtime model download | Ensure `HF_HUB_OFFLINE=1` and model in image |
-| 429 errors | Rate limiting | Check Redis connection or increase limits |
-| MongoDB timeouts | Atlas IP not allowed | Add Render IP ranges to Atlas allowlist |
+| Issue                 | Cause                  | Solution                                      |
+| --------------------- | ---------------------- | --------------------------------------------- |
+| Readiness probe fails | Model not loading      | Check logs for model errors; verify `HF_HOME` |
+| High memory usage     | Too many workers       | Reduce `GUNICORN_WORKERS`                     |
+| Slow cold starts      | Runtime model download | Ensure `HF_HUB_OFFLINE=1` and model in image  |
+| 429 errors            | Rate limiting          | Check Redis connection or increase limits     |
+| MongoDB timeouts      | Atlas IP not allowed   | Add Render IP ranges to Atlas allowlist       |
 
 ## Load Testing
 
@@ -209,7 +212,7 @@ EOF
 k6 run --vus 5 --duration 60s - <<EOF
 import http from 'k6/http';
 export default function() {
-  http.post('https://your-service.onrender.com/api/accounting/jobs', 
+  http.post('https://your-service.onrender.com/api/accounting/jobs',
     JSON.stringify({
       businessId: 'test',
       periodStart: '2024-01-01',
@@ -225,13 +228,13 @@ EOF
 
 For Render:
 
-| Strategy | Impact |
-|----------|--------|
-| Use pre-downloaded model | Faster cold starts, no bandwidth costs |
-| Redis caching | Reduces redundant LLM calls |
-| Request deduplication | Prevents duplicate processing |
-| Rate limiting | Prevents abuse, reduces costs |
-| Groq fallback | Cheaper than larger instances for high LLM load |
+| Strategy                 | Impact                                          |
+| ------------------------ | ----------------------------------------------- |
+| Use pre-downloaded model | Faster cold starts, no bandwidth costs          |
+| Redis caching            | Reduces redundant LLM calls                     |
+| Request deduplication    | Prevents duplicate processing                   |
+| Rate limiting            | Prevents abuse, reduces costs                   |
+| Groq fallback            | Cheaper than larger instances for high LLM load |
 
 ## Rollback Strategy
 
@@ -242,6 +245,7 @@ For Render:
 ## Support
 
 For deployment issues:
+
 1. Check Render Dashboard logs
 2. Verify environment variables
 3. Test health endpoints: `curl https://your-service.onrender.com/api/health/status`

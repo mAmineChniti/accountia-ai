@@ -206,9 +206,9 @@ Below are exact request and response shapes for each public endpoint. Authentica
   - Request (application/json):
     ```json
     {
-      "businessId": "string",        // required
+      "businessId": "string", // required
       "periodStart": "2024-01-01T00:00:00Z", // ISO8601 string, required
-      "periodEnd": "2024-01-31T23:59:59Z"    // ISO8601 string, required
+      "periodEnd": "2024-01-31T23:59:59Z" // ISO8601 string, required
     }
     ```
   - Responses:
@@ -317,12 +317,12 @@ Below are exact request and response shapes for each public endpoint. Authentica
         "periodEnd": "2024-01-31T23:59:59Z",
         "status": "completed",
         "totalRevenue": 12345.67,
-        "totalExpenses": 10999.00,
+        "totalExpenses": 10999.0,
         "grossProfit": 6913.57,
         "netProfit": 2345.67,
-        "accountsReceivable": 2000.00,
-        "accountsPayable": 1200.00,
-        "cashPosition": 5000.00,
+        "accountsReceivable": 2000.0,
+        "accountsPayable": 1200.0,
+        "cashPosition": 5000.0,
         "taxCalculations": [
           {
             "taxType": "VAT",
@@ -335,12 +335,30 @@ Below are exact request and response shapes for each public endpoint. Authentica
         ],
         "aiInsights": "Anomaly: missing invoices for 2024-01-15",
         "recommendations": ["Review vendor X"],
-        "anomaliesDetected": [{"type":"missing_invoice","detail":"INV-2024-015","severity":"medium"}],
+        "anomaliesDetected": [
+          {
+            "type": "missing_invoice",
+            "detail": "INV-2024-015",
+            "severity": "medium"
+          }
+        ],
         "reports": [
-          {"reportType": "P&L", "periodStart": "2024-01-01T00:00:00Z", "periodEnd": "2024-01-31T23:59:59Z", "data": {}}
+          {
+            "reportType": "P&L",
+            "periodStart": "2024-01-01T00:00:00Z",
+            "periodEnd": "2024-01-31T23:59:59Z",
+            "data": {}
+          }
         ],
         "journalEntries": [
-          {"date": "2024-01-05", "account": "Accounts Receivable", "debit": 1000.0, "credit": 0.0, "description": "Invoice INV-1001", "invoiceId": "INV-1001"}
+          {
+            "date": "2024-01-05",
+            "account": "Accounts Receivable",
+            "debit": 1000.0,
+            "credit": 0.0,
+            "description": "Invoice INV-1001",
+            "invoiceId": "INV-1001"
+          }
         ],
         "totalJournalEntries": 42
       }
@@ -392,7 +410,11 @@ Below are exact request and response shapes for each public endpoint. Authentica
           "insights": "Basic analysis summary",
           "recommendations": ["Confirm VAT filings for Q2"],
           "anomalies": [
-            { "type": "missing_invoice", "detail": "Invoice INV-2024-015 missing line items", "severity": "medium" }
+            {
+              "type": "missing_invoice",
+              "detail": "Invoice INV-2024-015 missing line items",
+              "severity": "medium"
+            }
           ]
         },
         "createdAt": "2024-04-01T10:00:00Z",
@@ -416,6 +438,7 @@ Below are exact request and response shapes for each public endpoint. Authentica
 - Protect sensitive endpoints by applying `secure_endpoint` dependency or adding middleware that enforces API-key globally.
 
 If you want, I can now:
+
 - apply `secure_endpoint` to all accounting routes so they require the API key, or
 - remove the model from the health critical checks so readiness is tolerant when TF model is absent, or
 - generate a compact OpenAPI summary file / docs update for consumers.
