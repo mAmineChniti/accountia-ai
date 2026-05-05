@@ -31,8 +31,8 @@ pipeline {
                     python3.11 --version
                     
                     python3.11 -m venv venv
-                    ./venv/bin/python -m pip install --upgrade pip
-                    ./venv/bin/python -m pip install -r requirements.txt coverage
+                    ./venv/bin/python3.11 -m pip install --upgrade pip
+                    ./venv/bin/python3.11 -m pip install -r requirements.txt coverage
                 '''
             }
         }
@@ -52,22 +52,24 @@ pipeline {
         stage('Tests') {
             steps {
                 sh '''
-                    ./venv/bin/coverage run -m pytest tests/ -v
-                    ./venv/bin/coverage xml -o coverage.xml
-                    ./venv/bin/coverage report
+                    ./venv/bin/python3.11 -m coverage run -m pytest tests/ -v
+                    ./venv/bin/python3.11 -m coverage xml -o coverage.xml
+                    ./venv/bin/python3.11 -m coverage report
                 '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                sh 'sonar-scanner -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300'
+                withSonarQubeEnv('SonarQube') {
+                    sh 'sonar-scanner -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300'
+                }
             }
         }
 
         stage('Build') {
             steps {
-                sh './venv/bin/python -c "from app.main import app; print(\'✓ App builds successfully\')"'
+                sh './venv/bin/python3.11 -c "from app.main import app; print(\'✓ App builds successfully\')"'
             }
         }
 
