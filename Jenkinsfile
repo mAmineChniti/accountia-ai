@@ -26,33 +26,31 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                python3.11 -m venv venv
-                . venv/bin/activate
-                pip install --upgrade pip
-                pip install -r requirements.txt
-                    python3 -m pip install coverage
+                    python3.11 -m venv venv
+                    ./venv/bin/python -m pip install --upgrade pip
+                    ./venv/bin/python -m pip install -r requirements.txt coverage
                 '''
             }
         }
 
         stage('Lint') {
             steps {
-                sh 'ruff check app/'
+                sh './venv/bin/ruff check app/'
             }
         }
 
         stage('Format') {
             steps {
-                sh 'ruff format --check app/'
+                sh './venv/bin/ruff format --check app/'
             }
         }
 
         stage('Tests') {
             steps {
                 sh '''
-                    coverage run -m pytest tests/ -v
-                    coverage xml -o coverage.xml
-                    coverage report
+                    ./venv/bin/coverage run -m pytest tests/ -v
+                    ./venv/bin/coverage xml -o coverage.xml
+                    ./venv/bin/coverage report
                 '''
             }
         }
@@ -65,7 +63,7 @@ pipeline {
 
         stage('Build') {
             steps {
-                sh 'python3 -c "from app.main import app; print(\'✓ App builds successfully\')"'
+                sh './venv/bin/python -c "from app.main import app; print(\'✓ App builds successfully\')"'
             }
         }
 
