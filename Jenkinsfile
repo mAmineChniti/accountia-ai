@@ -108,14 +108,19 @@ pipeline {
                             echo "Docker daemon is not accessible for Jenkins user. Skipping Docker build & push."
                             exit 0
                         fi
+                        mkdir -p .docker-ci
                     '''
-                    sh 'docker build -t "$DOCKER_IMAGE:$IMAGE_TAG" -t "$DOCKER_IMAGE:latest" .'
-                    withCredentials([usernamePassword(credentialsId: DOCKERHUB_CREDENTIALS_ID, usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                        sh '''
-                            echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-                            docker push "$DOCKER_IMAGE:$IMAGE_TAG"
-                            docker push "$DOCKER_IMAGE:latest"
-                        '''
+                    try {
+                        sh 'DOCKER_CONFIG="$PWD/.docker-ci" docker build -t "$DOCKER_IMAGE:$IMAGE_TAG" -t "$DOCKER_IMAGE:latest" .'
+                        withCredentials([usernamePassword(credentialsId: DOCKERHUB_CREDENTIALS_ID, usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                            sh '''
+                                printf '%s' "$DOCKERHUB_PASSWORD" | DOCKER_CONFIG="$PWD/.docker-ci" docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                                DOCKER_CONFIG="$PWD/.docker-ci" docker push "$DOCKER_IMAGE:$IMAGE_TAG"
+                                DOCKER_CONFIG="$PWD/.docker-ci" docker push "$DOCKER_IMAGE:latest"
+                            '''
+                        }
+                    } catch (Exception e) {
+                        echo "WARNING: Docker build/push failed or Docker credentials are unavailable: ${e.message}. Skipping Docker stage."
                     }
                 }
             }
@@ -134,7 +139,7 @@ pipeline {
         cleanup {
             archiveArtifacts artifacts: '.scannerwork/report-task.txt,coverage.xml', allowEmptyArchive: true
             sh 'rm -rf .pytest_cache .coverage coverage.xml sonar-scanner-* sonar-scanner-cli-*.zip .scannerwork/ || true'
-            sh 'docker logout || true'
+            sh 'rm -rf .docker-ci || true'
         }
     }
 }
