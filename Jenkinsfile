@@ -125,7 +125,7 @@ pipeline {
 
         cleanup {
             archiveArtifacts artifacts: '.scannerwork/report-task.txt,coverage.xml', allowEmptyArchive: true
-            sh 'rm -rf .pytest_cache .coverage coverage.xml || true'
+            sh 'rm -rf .pytest_cache .coverage coverage.xml sonar-scanner-* .scannerwork/ || true'
             sh 'docker logout || true'
         }
     }

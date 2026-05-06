@@ -1,0 +1,35 @@
+# Python virtual environment
+venv/
+env/
+
+# Build output
+build/
+dist/
+coverage/
+.scannerwork/
+
+# Dependencies
+sonar-scanner-*/
+
+# Python cache
+__pycache__/
+.pytest_cache/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Misc
+tmp/
+.cache/
+jenkins_home/
