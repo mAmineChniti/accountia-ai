@@ -1,20 +1,32 @@
 groups:
   - name: accountia_ai_alerts
     rules:
-      - alert: InstanceDown
-        expr: up == 0
+      - alert: AccountiaAiDown
+        expr: up{job="accountia-ai"} == 0
         for: 1m
         labels:
           severity: critical
+          service: accountia-ai
         annotations:
           summary: "Accountia AI is down"
           description: "Prometheus cannot scrape the AI metrics endpoint for more than one minute."
 
-      - alert: HighProcessMemoryUsage
-        expr: process_resident_memory_bytes > 200000000
+      - alert: AccountiaAiHighMemory
+        expr: process_resident_memory_bytes{job="accountia-ai"} > 200000000
         for: 5m
         labels:
           severity: warning
+          service: accountia-ai
         annotations:
           summary: "High memory usage on Accountia AI"
           description: "AI process memory is above 200MB for more than 5 minutes."
+
+      - alert: AccountiaAiHighCPU
+        expr: rate(process_cpu_seconds_total{job="accountia-ai"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: accountia-ai
+        annotations:
+          summary: "High CPU usage on Accountia AI"
+          description: "AI CPU usage is above 80% for more than 5 minutes."

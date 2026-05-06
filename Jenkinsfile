@@ -14,6 +14,7 @@ pipeline {
         PYTHONUNBUFFERED = '1'
         PIP_DISABLE_PIP_VERSION_CHECK = '1'
         PIP_NO_CACHE_DIR = '1'
+        SONAR_HOST_URL = 'http://localhost:9000'
     }
 
     stages {
@@ -61,36 +62,31 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                script {
-                    // SonarQube analysis is optional - don't fail build if it has issues
-                    try {
-                        // Install sonar-scanner if not available
-                        sh '''
-                            if ! command -v sonar-scanner &> /dev/null; then
-                                echo "Installing sonar-scanner..."
-                                wget --timeout=30 --tries=3 -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip || {
-                                    echo "Failed to download sonar-scanner. Skipping SonarQube analysis."
-                                    exit 0
-                                }
-                                unzip -qo sonar-scanner-cli-5.0.1.3006-linux.zip || { echo "Failed to extract sonar-scanner. Skipping SonarQube analysis."; exit 0; }
-                                chmod +x sonar-scanner-5.0.1.3006-linux/bin/sonar-scanner
-                                echo "sonar-scanner installed successfully"
-                            fi
-                        '''
-                        withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
-                            sh '''
-                                export PATH=$PWD/sonar-scanner-5.0.1.3006-linux/bin:$PATH
-                                SONAR_HOST_URL=${SONAR_HOST_URL:-http://localhost:9000}
-                                echo "Running SonarQube analysis with token..."
-                                sonar-scanner -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.token=$SONAR_TOKEN -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300 || {
-                                    echo "WARNING: SonarQube analysis failed. Continuing pipeline..."
-                                    exit 0
-                                }
-                            '''
-                        }
-                    } catch (Exception e) {
-                        echo "WARNING: SonarQube analysis stage failed: ${e.message}. Continuing pipeline..."
-                    }
+                withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
+                    sh '''
+                        set -e
+                        if [ -z "${SONAR_HOST_URL:-}" ]; then
+                          echo "WARN: SONAR_HOST_URL not configured. Skipping SonarQube analysis."
+                          exit 0
+                        fi
+
+                        if command -v sonar-scanner >/dev/null 2>&1; then
+                          SCANNER_BIN=sonar-scanner
+                        else
+                          echo "Installing sonar-scanner CLI..."
+                          wget --timeout=30 --tries=3 \
+                            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+                          unzip -qo sonar-scanner-cli-5.0.1.3006-linux.zip
+                          chmod +x sonar-scanner-5.0.1.3006-linux/bin/sonar-scanner
+                          SCANNER_BIN="$PWD/sonar-scanner-5.0.1.3006-linux/bin/sonar-scanner"
+                        fi
+
+                        "$SCANNER_BIN" \
+                          -Dsonar.host.url="$SONAR_HOST_URL" \
+                          -Dsonar.token="$SONAR_TOKEN" \
+                          -Dsonar.qualitygate.wait=true \
+                          -Dsonar.qualitygate.timeout=300
+                    '''
                 }
             }
         }

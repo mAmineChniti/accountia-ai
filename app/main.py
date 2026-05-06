@@ -201,7 +201,15 @@ app.add_middleware(
     RateLimiter,
     default_max_requests=60,
     default_window_seconds=60,
-    exclude_paths=["/docs", "/redoc", "/openapi.json", "/api/health", "/api/health/ready", "/api/health/status"],
+    exclude_paths=[
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/health",
+        "/api/health/ready",
+        "/api/health/status",
+        "/api/alerts",
+    ],
 )
 
 # Routers
